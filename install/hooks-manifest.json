@@ -15,6 +15,14 @@
       ]
     }
   ],
+  "PostToolUse": [
+    {
+      "matcher": "Bash|Edit|Write|NotebookEdit",
+      "hooks": [
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-oplog.py", "timeout": 15}
+      ]
+    }
+  ],
   "Stop": [
     {
       "hooks": [

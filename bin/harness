@@ -6,6 +6,7 @@ harness — install / verify / attach the harness mechanism.
   harness doctor                verify every link, entry and directory; nonzero on FAIL
   harness init [PATH]           attach .harness/ to a project (default: cwd)
   harness status [PATH]         show the resolved config for a directory
+  harness oplog [PATH]          show the change log (what was written / moved / applied)
   harness uninstall [--dry-run] remove harness hooks and settings entries
 
 Never rewrites anything in settings.json other than the harness entries, and
@@ -314,6 +315,37 @@ def cmd_status(args):
 
 # ------------------------------------------------------------------ uninstall
 
+def cmd_oplog(args):
+    sys.path.insert(0, str(HOOKS_SRC))
+    from _harness import find_project_root  # noqa
+    root = find_project_root(Path(args.path or ".").resolve())
+    path = (root / ".harness" / "oplog.jsonl") if root else (GLOBAL_DIR / "oplog.jsonl")
+    if not path.is_file():
+        print(f"no oplog at {path}")
+        return 0
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                pass
+    if args.since:
+        rows = [r for r in rows if (r.get("ts") or "") >= args.since]
+    rows = sorted(rows, key=lambda r: r.get("ts") or "")[-args.limit:]
+    print(f"{path}  ({len(rows)} shown)\n")
+    for r in rows:
+        ts = (r.get("ts") or "")[:19].replace("T", " ")
+        git = r.get("git") or {}
+        ref = f"{git.get('branch') or '?'}@{git.get('head') or '?'}"
+        print(f"{ts}  {r.get('action', ''):6s} [{ref}] {r.get('target') or ''}")
+        if r.get("intent"):
+            print(f"{'':21s}  intent: {r['intent']}")
+        if args.verbose and r.get("command"):
+            print(f"{'':21s}  $ {r['command'].splitlines()[-1][:140]}")
+    return 0
+
+
 def cmd_uninstall(args):
     dry = args.dry_run
     for src in hook_files():
@@ -368,6 +400,13 @@ def main():
                    help="ignore .harness/ via .git/info/exclude (no tracked change to the repo)")
     p.set_defaults(fn=cmd_init)
     p = sub.add_parser("status"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("oplog")
+    p.add_argument("path", nargs="?")
+    p.add_argument("--limit", type=int, default=40)
+    p.add_argument("--since", help="ISO timestamp lower bound")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(fn=cmd_oplog)
+
     p = sub.add_parser("uninstall"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_uninstall)
 
     args = ap.parse_args()

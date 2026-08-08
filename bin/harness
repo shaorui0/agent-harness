@@ -212,17 +212,39 @@ def cmd_doctor(args):
             say(OK if linked else FAIL, f"skill {'linked' if linked else 'NOT linked'}: {skill.name}")
 
     sys.path.insert(0, str(HOOKS_SRC))
-    from _harness import find_project_root  # noqa
+    from _harness import find_project_root, load_config  # noqa
     root = find_project_root(Path(args.path or ".").resolve())
     if root:
         say(OK, f"project detected here: {root}")
         stamp = root / ".harness" / ".last-compact"
         say(OK, f"last compact: {stamp.read_text().strip() if stamp.is_file() else 'never'}")
+        check_archive_tracked(root, load_config(root)[0])
     else:
         say(OK, "no harness project in this directory (global defaults apply)")
 
     print(f"\n{_failures} failure(s)\n")
     return 1 if _failures else 0
+
+
+def check_archive_tracked(root, cfg):
+    """compaction `git mv`s superseded docs into the archive dir. If that dir is
+    ignored, the move silently drops files out of the repo, so refuse it here."""
+    adir = (cfg.get("archive") or {}).get("dir") or ".harness/archive"
+    target = root / adir
+    probe = target / ".harness-probe"
+    try:
+        r = subprocess.run(["git", "check-ignore", "-q", str(probe)],
+                           cwd=root, capture_output=True, timeout=5)
+    except Exception:
+        say(WARN, f"could not test whether {adir} is git-ignored")
+        return
+    if r.returncode == 0:
+        say(FAIL,
+            f"archive dir `{adir}` is git-ignored. compaction would `git mv` tracked "
+            f"docs into an ignored path, which deletes them from the repo. "
+            f"Point archive.dir at a tracked path (e.g. docs/_archive).")
+    else:
+        say(OK, f"archive dir is git-tracked: {adir}")
 
 
 # ------------------------------------------------------------------ init
@@ -249,8 +271,33 @@ def cmd_init(args):
             encoding="utf-8",
         )
     (hdir / ".gitkeep").write_text("", encoding="utf-8")
+
+    if args.local_ignore:
+        try:
+            top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root,
+                                 capture_output=True, text=True, timeout=5).stdout.strip()
+            gitdir = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root,
+                                    capture_output=True, text=True, timeout=5).stdout.strip()
+        except Exception:
+            top = gitdir = ""
+        if top and gitdir:
+            gitdir_path = Path(gitdir) if Path(gitdir).is_absolute() else Path(root) / gitdir
+            exclude = gitdir_path / "info" / "exclude"
+            rel = hdir.relative_to(Path(top).resolve())
+            line = f"/{rel}/"
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            body = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+            if line not in body.splitlines():
+                with open(exclude, "a", encoding="utf-8") as fh:
+                    fh.write(f"\n# harness: local-only project state\n{line}\n")
+                print(f"ignored locally via {exclude} ({line})")
+            else:
+                print(f"already ignored locally: {line}")
+        else:
+            print("not a git repo; --local-ignore skipped")
+
     print(f"attached: {hdir}")
-    print("edit .harness/project.yml (autonomy + context_files), then run /harness-compact")
+    print("edit .harness/project.yml (autonomy + context_files), then run /harness-onboard")
     return 0
 
 
@@ -314,7 +361,12 @@ def main():
 
     p = sub.add_parser("install"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_install)
     p = sub.add_parser("doctor"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_doctor)
-    p = sub.add_parser("init"); p.add_argument("path", nargs="?"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_init)
+    p = sub.add_parser("init")
+    p.add_argument("path", nargs="?")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--local-ignore", action="store_true",
+                   help="ignore .harness/ via .git/info/exclude (no tracked change to the repo)")
+    p.set_defaults(fn=cmd_init)
     p = sub.add_parser("status"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("uninstall"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_uninstall)
 

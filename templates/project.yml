@@ -24,6 +24,9 @@ journal:
   max_message_chars: 4000
   tail: 5                      # session 开头注入最近几条
 
+# 归档目录**必须被 git 跟踪**。compaction 会把被取代的文档 `git mv` 进来，
+# 落在 gitignore 覆盖范围内的话，那个动作等于从仓库里静默删文件。
+# `.harness/` 整体被忽略时，把这里指到一个被跟踪的路径，例如 docs/_archive。
 archive:
   dir: .harness/archive
 

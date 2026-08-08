@@ -65,7 +65,16 @@ cat .harness/.last-compact 2>/dev/null
 
 ### 5. 归档（硬规则）
 
-被取代和过期的内容进 `.harness/archive/<YYYY-MM-DD>/`。
+被取代和过期的内容进 `project.yml` 里 `archive.dir` 指定的目录。
+
+**开工前先确认归档目录被 git 跟踪**：
+
+```bash
+git check-ignore -q <archive.dir>/probe && echo "IGNORED — 停下"
+```
+
+命中 gitignore 就停下报错，不要继续。把被跟踪的文档 `git mv` 进一个被忽略的目录，
+等于从仓库里静默删掉它们，而这正是这套机制要防的事。`harness doctor` 也会检查这一条。
 
 **禁止 `rm`。** 一律：
 

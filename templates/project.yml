@@ -1,0 +1,66 @@
+# .harness/project.yml — 这个项目的运行契约
+#
+# 每个 session 开头由 SessionStart hook 读取并注入。所有字段可选，
+# 缺省值见 agent-harness/hooks/_harness.py 的 DEFAULTS。
+
+name: __NAME__
+description: >
+  一句话说明这个项目在做什么。会出现在每个 session 的开头。
+
+# ── 单一事实来源 ────────────────────────────────────────────────
+# STATE.md 是 compaction 的产物，只写当前有效的结论。
+# 历史和被推翻的内容在 .harness/archive/ 里，不进这里。
+state:
+  file: .harness/STATE.md
+  max_chars: 8000
+
+# 权威口径的入口文件。只注入路径，不注入正文，让模型按需读。
+context_files: []
+  # - docs/pool-system/00-INDEX.md
+
+# ── WAL ────────────────────────────────────────────────────────
+journal:
+  dir: .harness/journal
+  max_message_chars: 4000
+  tail: 5                      # session 开头注入最近几条
+
+archive:
+  dir: .harness/archive
+
+# ── 自主边界 ───────────────────────────────────────────────────
+# 目的是「安全区内不再确认，安全区外直接拦住」。
+autonomy:
+  auto_allow_inside: true
+
+  # 命中即放行，不弹权限提示。按命令前缀匹配（会自动跳过 `# INTENT:` 注释行）。
+  allow_prefixes: []
+    # - "kubectl get"
+    # - "kubectl describe"
+    # - "git status"
+
+  # 正则，命中即硬拦截并说明原因。
+  deny_patterns: []
+    # - "kubectl delete (ns|namespace)"
+    # - "rm -rf /"
+
+  # 写操作限定在这些相对路径之内，留空表示不限制。
+  write_roots: []
+    # - docs
+    # - .harness
+
+  k8s:
+    allow_contexts: []
+      # - kwestpreprod
+    deny_contexts: []
+      # - kwestproda
+
+# ── 调查并行度 ─────────────────────────────────────────────────
+explore:
+  default_agents: 3
+  max_agents: 5
+
+# ── 输出契约 ───────────────────────────────────────────────────
+output:
+  contract: structured     # structured | free
+  nudge_once: true         # 散文长回复时提醒一次
+  auto_continue: true      # 在 envelope 内停下来征求同意时推回去一次

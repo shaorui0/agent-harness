@@ -1,0 +1,326 @@
+#!/usr/bin/env python3
+"""
+harness — install / verify / attach the harness mechanism.
+
+  harness install [--dry-run]   register hooks + skills into ~/.claude, idempotent
+  harness doctor                verify every link, entry and directory; nonzero on FAIL
+  harness init [PATH]           attach .harness/ to a project (default: cwd)
+  harness status [PATH]         show the resolved config for a directory
+  harness uninstall [--dry-run] remove harness hooks and settings entries
+
+Never rewrites anything in settings.json other than the harness entries, and
+always backs the file up before writing.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+HOOKS_SRC = REPO / "hooks"
+SKILLS_SRC = REPO / "skills"
+TEMPLATES = REPO / "templates"
+MANIFEST = REPO / "install" / "hooks-manifest.json"
+
+HOME = Path(os.path.expanduser("~"))
+CLAUDE = HOME / ".claude"
+HOOKS_DST = CLAUDE / "hooks"
+SKILLS_DST = CLAUDE / "skills"
+SETTINGS = CLAUDE / "settings.json"
+GLOBAL_DIR = HOME / ".harness"
+
+OK, WARN, FAIL = "  ok  ", " warn ", " FAIL "
+_failures = 0
+
+
+def say(tag, msg):
+    global _failures
+    if tag == FAIL:
+        _failures += 1
+    print(f"[{tag}] {msg}")
+
+
+def hook_files():
+    return sorted(p for p in HOOKS_SRC.glob("*.py"))
+
+
+def manifest():
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def manifest_commands():
+    out = set()
+    for event, entries in manifest().items():
+        if event.startswith("_"):
+            continue
+        for entry in entries:
+            for h in entry.get("hooks", []):
+                if h.get("command"):
+                    out.add(h["command"])
+    return out
+
+
+# ------------------------------------------------------------------ install
+
+def link(src, dst, dry):
+    if dst.is_symlink() and Path(os.readlink(dst)) == src:
+        say(OK, f"already linked: {dst.name}")
+        return
+    if dst.exists() or dst.is_symlink():
+        say(WARN, f"replacing existing: {dst}")
+        if not dry:
+            if dst.is_dir() and not dst.is_symlink():
+                say(FAIL, f"{dst} is a real directory, refusing to remove it")
+                return
+            dst.unlink()
+    say(OK, f"link {dst} -> {src}")
+    if not dry:
+        dst.symlink_to(src)
+
+
+def merge_settings(dry):
+    if not SETTINGS.is_file():
+        say(FAIL, f"{SETTINGS} not found; start Claude Code once, then re-run")
+        return
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    hooks = settings.setdefault("hooks", {})
+    added = 0
+
+    for event, entries in manifest().items():
+        if event.startswith("_"):
+            continue
+        bucket = hooks.setdefault(event, [])
+        existing = {
+            h.get("command")
+            for e in bucket
+            for h in e.get("hooks", [])
+        }
+        for entry in entries:
+            wanted = [h for h in entry["hooks"] if h["command"] not in existing]
+            if not wanted:
+                continue
+            new_entry = {k: v for k, v in entry.items() if k != "hooks"}
+            new_entry["hooks"] = wanted
+            bucket.append(new_entry)
+            added += len(wanted)
+            say(OK, f"settings.json += {event} {entry.get('matcher', '(all)')}")
+
+    if added == 0:
+        say(OK, "settings.json already has every harness entry")
+        return
+    if dry:
+        say(OK, f"[dry-run] would write {added} entries")
+        return
+    backup = SETTINGS.with_suffix(f".json.harness-bak-{datetime.now():%Y%m%d-%H%M%S}")
+    shutil.copy2(SETTINGS, backup)
+    SETTINGS.write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    say(OK, f"wrote {added} entries (backup: {backup.name})")
+
+
+def cmd_install(args):
+    dry = args.dry_run
+    print(f"\nharness install\n  repo: {REPO}\n" + ("  mode: DRY RUN\n" if dry else ""))
+
+    for d in (HOOKS_DST, SKILLS_DST, GLOBAL_DIR / "journal", GLOBAL_DIR / "run"):
+        if not d.is_dir():
+            say(OK, f"mkdir {d}")
+            if not dry:
+                d.mkdir(parents=True, exist_ok=True)
+
+    for src in hook_files():
+        if not dry:
+            src.chmod(0o755)
+        link(src, HOOKS_DST / src.name, dry)
+
+    if SKILLS_SRC.is_dir():
+        for skill in sorted(p for p in SKILLS_SRC.iterdir() if p.is_dir()):
+            link(skill, SKILLS_DST / skill.name, dry)
+
+    gcfg = GLOBAL_DIR / "config.yml"
+    if not gcfg.exists():
+        say(OK, f"seed {gcfg}")
+        if not dry:
+            shutil.copy2(TEMPLATES / "global-config.yml", gcfg)
+    else:
+        say(OK, "global config already present")
+
+    merge_settings(dry)
+    print("\nnext: harness doctor\n")
+    return 0
+
+
+# ------------------------------------------------------------------ doctor
+
+def cmd_doctor(args):
+    print(f"\nharness doctor\n  repo: {REPO}\n")
+
+    try:
+        subprocess.run(["python3", "-c", "import yaml"], check=True,
+                       capture_output=True, timeout=10)
+        say(OK, "python3 has PyYAML")
+    except Exception:
+        say(WARN, "python3 has no PyYAML; hooks fall back to the built-in parser")
+
+    for src in hook_files():
+        dst = HOOKS_DST / src.name
+        if not dst.is_symlink():
+            say(FAIL if dst.exists() is False else WARN,
+                f"{dst.name} is not a symlink into this repo")
+            continue
+        target = Path(os.readlink(dst))
+        if target != src:
+            say(FAIL, f"{dst.name} points at {target}, expected {src}")
+        elif not target.exists():
+            say(FAIL, f"{dst.name} is a broken link -> {target}")
+        else:
+            say(OK, f"hook linked: {dst.name}")
+
+    if SETTINGS.is_file():
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        present = {
+            h.get("command")
+            for entries in settings.get("hooks", {}).values()
+            for e in entries
+            for h in e.get("hooks", [])
+        }
+        for cmd in sorted(manifest_commands()):
+            if cmd in present:
+                say(OK, f"registered: {cmd}")
+            else:
+                say(FAIL, f"missing from settings.json: {cmd}")
+        for cmd in sorted(present):
+            path = cmd.split()[-1].replace("~", str(HOME))
+            if path.endswith((".py", ".sh")) and not Path(path).exists():
+                say(FAIL, f"settings.json references a missing file: {path}")
+    else:
+        say(FAIL, f"{SETTINGS} not found")
+
+    for d in (GLOBAL_DIR / "journal", GLOBAL_DIR / "run"):
+        say(OK if d.is_dir() else FAIL, f"dir {'present' if d.is_dir() else 'missing'}: {d}")
+
+    if SKILLS_SRC.is_dir():
+        for skill in sorted(p for p in SKILLS_SRC.iterdir() if p.is_dir()):
+            dst = SKILLS_DST / skill.name
+            linked = dst.is_symlink() and Path(os.readlink(dst)) == skill
+            say(OK if linked else FAIL, f"skill {'linked' if linked else 'NOT linked'}: {skill.name}")
+
+    sys.path.insert(0, str(HOOKS_SRC))
+    from _harness import find_project_root  # noqa
+    root = find_project_root(Path(args.path or ".").resolve())
+    if root:
+        say(OK, f"project detected here: {root}")
+        stamp = root / ".harness" / ".last-compact"
+        say(OK, f"last compact: {stamp.read_text().strip() if stamp.is_file() else 'never'}")
+    else:
+        say(OK, "no harness project in this directory (global defaults apply)")
+
+    print(f"\n{_failures} failure(s)\n")
+    return 1 if _failures else 0
+
+
+# ------------------------------------------------------------------ init
+
+def cmd_init(args):
+    root = Path(args.path or ".").resolve()
+    hdir = root / ".harness"
+    if hdir.exists() and not args.force:
+        print(f"{hdir} already exists. Re-run with --force to overwrite project.yml.")
+        return 1
+    for sub in ("journal", "archive"):
+        (hdir / sub).mkdir(parents=True, exist_ok=True)
+
+    tpl = (TEMPLATES / "project.yml").read_text(encoding="utf-8")
+    (hdir / "project.yml").write_text(
+        tpl.replace("__NAME__", root.name), encoding="utf-8"
+    )
+    state = hdir / "STATE.md"
+    if not state.exists():
+        state.write_text(
+            (TEMPLATES / "STATE.md").read_text(encoding="utf-8")
+            .replace("__NAME__", root.name)
+            .replace("__DATE__", datetime.now().strftime("%Y-%m-%d")),
+            encoding="utf-8",
+        )
+    (hdir / ".gitkeep").write_text("", encoding="utf-8")
+    print(f"attached: {hdir}")
+    print("edit .harness/project.yml (autonomy + context_files), then run /harness-compact")
+    return 0
+
+
+# ------------------------------------------------------------------ status
+
+def cmd_status(args):
+    sys.path.insert(0, str(HOOKS_SRC))
+    from _harness import load_config  # noqa
+    cfg, root = load_config(Path(args.path or ".").resolve())
+    print(json.dumps({"project_root": str(root) if root else None, "config": cfg},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+# ------------------------------------------------------------------ uninstall
+
+def cmd_uninstall(args):
+    dry = args.dry_run
+    for src in hook_files():
+        dst = HOOKS_DST / src.name
+        if dst.is_symlink():
+            say(OK, f"unlink {dst}")
+            if not dry:
+                dst.unlink()
+    if SKILLS_SRC.is_dir():
+        for skill in sorted(p for p in SKILLS_SRC.iterdir() if p.is_dir()):
+            dst = SKILLS_DST / skill.name
+            if dst.is_symlink():
+                say(OK, f"unlink {dst}")
+                if not dry:
+                    dst.unlink()
+
+    if SETTINGS.is_file():
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        wanted = manifest_commands()
+        removed = 0
+        for event, entries in list(settings.get("hooks", {}).items()):
+            for entry in list(entries):
+                kept = [h for h in entry.get("hooks", []) if h.get("command") not in wanted]
+                removed += len(entry.get("hooks", [])) - len(kept)
+                if kept:
+                    entry["hooks"] = kept
+                else:
+                    entries.remove(entry)
+            if not entries:
+                settings["hooks"].pop(event, None)
+        if removed and not dry:
+            backup = SETTINGS.with_suffix(f".json.harness-bak-{datetime.now():%Y%m%d-%H%M%S}")
+            shutil.copy2(SETTINGS, backup)
+            SETTINGS.write_text(
+                json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+        say(OK, f"removed {removed} settings entries" + (" [dry-run]" if dry else ""))
+    print("\nproject-level .harness/ directories are left untouched.\n")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="harness")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("install"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_install)
+    p = sub.add_parser("doctor"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_doctor)
+    p = sub.add_parser("init"); p.add_argument("path", nargs="?"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_init)
+    p = sub.add_parser("status"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("uninstall"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_uninstall)
+
+    args = ap.parse_args()
+    sys.exit(args.fn(args))
+
+
+if __name__ == "__main__":
+    main()

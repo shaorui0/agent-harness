@@ -1,0 +1,23 @@
+# ~/.harness/config.yml — 全局默认
+#
+# 在任何 workspace 下都生效。目录里有 .harness/project.yml 时，
+# 项目配置逐字段覆盖这里的值。
+
+journal:
+  max_message_chars: 4000
+  tail: 5
+
+explore:
+  default_agents: 3
+  max_agents: 5
+
+output:
+  contract: structured
+  nudge_once: true
+  auto_continue: true
+
+# 全局层面只放跨项目都成立的硬红线。项目专属的边界写在项目的 project.yml 里。
+autonomy:
+  auto_allow_inside: true
+  allow_prefixes: []
+  deny_patterns: []

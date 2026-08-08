@@ -1,0 +1,26 @@
+{
+  "_comment": "Source of truth for harness hook registrations. `harness install` merges these into ~/.claude/settings.json without touching anything else. Entries are identified by their command string, so re-running is idempotent.",
+  "SessionStart": [
+    {
+      "hooks": [
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-session-start.py", "timeout": 10}
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Bash|Edit|Write|NotebookEdit",
+      "hooks": [
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-envelope.py", "timeout": 10}
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-journal.py", "timeout": 15},
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-stop-contract.py", "timeout": 10}
+      ]
+    }
+  ]
+}

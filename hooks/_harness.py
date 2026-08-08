@@ -40,7 +40,10 @@ DEFAULTS = {
     },
     "explore": {"default_agents": 3, "max_agents": 5},
     "output": {"contract": "structured", "nudge_once": True, "auto_continue": True},
+    "memory": {"enabled": True, "include_ancestors": True, "max_chars": 2500},
 }
+
+PROJECTS_DIR = HOME / ".claude" / "projects"
 
 
 # ---------------------------------------------------------------- yaml loading
@@ -261,6 +264,62 @@ def git_info(cwd):
         "head": run(["git", "rev-parse", "--short", "HEAD"]) or None,
         "dirty": len([l for l in status.splitlines() if l.strip()]) if status else 0,
     }
+
+
+def project_slug(path):
+    """Claude Code keys its auto-memory by cwd: every non-alphanumeric character
+    of the absolute path becomes a dash."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(Path(path)))
+
+
+def sibling_memory_indexes(cwd, root, include_ancestors=True):
+    """Claude Code loads the MEMORY.md of the *cwd's* project dir only. A repo
+    entered from a subdirectory therefore cannot see the memories written while
+    sitting at the repo root, and vice versa. Collect the indexes it will NOT
+    load so SessionStart can surface them.
+
+    Returns [(dir_path, index_text, memory_count)], nearest ancestor first.
+    """
+    if not PROJECTS_DIR.is_dir():
+        return []
+    try:
+        here = Path(cwd).resolve()
+    except Exception:
+        return []
+    loaded = project_slug(here)
+
+    candidates = []
+    if root is not None:
+        try:
+            candidates.append(Path(root).resolve())
+        except Exception:
+            pass
+    if include_ancestors:
+        stop = Path(root).resolve() if root is not None else None
+        for parent in here.parents:
+            candidates.append(parent)
+            if stop is not None and parent == stop:
+                break
+            if parent == HOME or parent == Path("/"):
+                break
+
+    out, seen = [], set()
+    for cand in candidates:
+        slug = project_slug(cand)
+        if slug == loaded or slug in seen:
+            continue
+        seen.add(slug)
+        mdir = PROJECTS_DIR / slug / "memory"
+        index = mdir / "MEMORY.md"
+        if not index.is_file():
+            continue
+        try:
+            text = index.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        count = len([p for p in mdir.glob("*.md") if p.name != "MEMORY.md"])
+        out.append((mdir, text, count))
+    return out
 
 
 def message_text(msg):

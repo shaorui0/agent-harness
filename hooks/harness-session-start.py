@@ -17,22 +17,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import (  # noqa: E402
-    emit_context, load_config, read_event, safe_main, truncate,
+    emit_context, load_config, read_event, safe_main, sibling_memory_indexes,
+    truncate,
 )
 
 CONTRACT = """## 作业契约（harness）
 
-**输出结构化。** 实质性回复用这个骨架，不写长篇散文：
+**输出结构化，段落之间用分隔线隔开。** 实质性回复用这个骨架，不写长篇散文：
 
 ```
-【结论】一到三句
-【证据】关键事实 + 出处（file:line 或命令）
-【问题】
+========= 【结论】 ==========================
+一到三句
+
+========= 【证据】 ==========================
+- 事实 | 出处（file:line 或命令）
+
+========= 【问题】 ==========================
 - 问题1：
-【下一步】
+
+========= 【下一步】 ========================
 - xxx
 ```
-纯对话、简单确认、单点问答不受此约束。
+分隔线用等号补齐到大致等宽，段名放在 `【】` 里。纯对话、简单确认、单点问答不受此约束。
 
 **并行看合并成本。** 调查任务先拆正交维度，维度之间结果不重叠才并行派 subagent（默认 %(agents)d 个，上限 %(max_agents)d）。
 同一个问题要多个意见时串行，不要并行，因为合并成本会落回人脑。
@@ -120,13 +126,50 @@ def journal_tail(root, cfg):
     return "\n".join(out)
 
 
-def build(cfg, root):
+def render_memory(cwd, root, cfg):
+    """Claude Code auto-loads only the MEMORY.md keyed to the exact cwd. Surface
+    the sibling indexes it cannot see, and state the precedence."""
+    mem = cfg.get("memory") or {}
+    if not mem.get("enabled", True):
+        return ""
+    others = sibling_memory_indexes(
+        cwd, root, include_ancestors=mem.get("include_ancestors", True)
+    )
+    if not others:
+        return ""
+
+    lines = ["## 跨 session 记忆", ""]
+    lines.append(
+        "自动记忆按 cwd 分目录存放，本轮只加载了当前 cwd 那一份。"
+        "下面是同一个项目下**没有被加载**的记忆索引，按需读文件正文："
+    )
+    lines.append("")
+    for mdir, text, count in others:
+        lines.append(f"### `{mdir}`（{count} 条）")
+        lines.append("")
+        body = "\n".join(
+            l for l in text.splitlines()
+            if l.strip().startswith("-") or l.strip().startswith("#")
+        )
+        lines.append(truncate(body.strip(), int(mem.get("max_chars") or 2500)))
+        lines.append("")
+    lines.append(
+        "**权威顺序**：`STATE.md` > journal > 自动记忆。"
+        "STATE.md 是带出处、经过收敛的当前状态；自动记忆记的是写下那一刻的事实，"
+        "可能已经过期，引用前先核实文件、函数、参数是否还在。冲突时以 STATE.md 为准，"
+        "并把冲突记进开放问题，等 `/harness-compact` 裁决。"
+    )
+    return "\n".join(lines)
+
+
+def build(cfg, root, cwd="."):
     contract = CONTRACT % {
         "agents": int((cfg.get("explore") or {}).get("default_agents") or 3),
         "max_agents": int((cfg.get("explore") or {}).get("max_agents") or 5),
     }
     if root is None:
-        return contract + "\n" + NO_PROJECT_HINT
+        mem = render_memory(cwd, root, cfg)
+        return "\n\n".join(x for x in [mem, contract, NO_PROJECT_HINT.strip()] if x)
 
     name = cfg.get("name") or root.name
     parts = [f"# HARNESS · {name}", ""]
@@ -166,6 +209,10 @@ def build(cfg, root):
     if tail:
         parts += [tail, ""]
 
+    mem = render_memory(cwd, root, cfg)
+    if mem:
+        parts += [mem, ""]
+
     env = render_envelope(cfg.get("autonomy") or {})
     if env:
         parts += [env, ""]
@@ -178,7 +225,7 @@ def main():
     event = read_event()
     cwd = event.get("cwd") or "."
     cfg, root = load_config(cwd)
-    text = build(cfg, root)
+    text = build(cfg, root, cwd)
     emit_context("SessionStart", text)
 
 

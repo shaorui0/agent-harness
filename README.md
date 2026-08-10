@@ -35,17 +35,18 @@ cd /path/to/repo
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
 | `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |
 
-## 五个 hook
+## 六个 hook
 
 | hook | 事件 | 作用 |
 |---|---|---|
 | `harness-session-start.py` | SessionStart | 注入 STATE.md、journal 尾部、自主边界、输出契约（读 `harness-output-format` skill） |
 | `harness-prompt-contract.py` | UserPromptSubmit | 每轮回复前追加一句输出格式提醒，防止长 session 里 SessionStart 的注入被淡忘/压缩掉 |
-| `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
 | `harness-envelope.py` | PreToolUse | 安全区内直接放行，安全区外硬拦 |
+| `harness-oplog.py` | PostToolUse | 变更留痕。journal 记「说了什么」，oplog 记「动了什么」，带 `# INTENT:` 和当时的 git ref；只读命令跳过 |
+| `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
 | `harness-stop-contract.py` | Stop | 在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒一次（pre 机制失效时的最后一道） |
 
-除 journal 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
+除 journal 和 oplog 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
 
 ## 项目目录长这样
 
@@ -55,6 +56,7 @@ cd /path/to/repo
 ├── STATE.md             # 当前有效的结论（compaction 的产物，session 开头自动注入）
 ├── journal/
 │   └── 2026-08-08.jsonl # WAL，只增不改
+├── oplog.jsonl          # 变更留痕：写了什么文件、移了什么、跑了什么 mutating 命令
 ├── archive/
 │   └── 2026-08-15/
 │       ├── ARCHIVE-MANIFEST.md   # 每条：原路径 / 原因 / 被什么取代 / 时间

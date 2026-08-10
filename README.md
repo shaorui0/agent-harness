@@ -26,24 +26,26 @@ cd /path/to/repo
 
 然后在那个仓库里跑 `/harness-onboard`，它会摸底、填 `project.yml` 的自主边界、从现有文档蒸馏第一版 `STATE.md`。
 
-## 三个 skill
+## 四个主动 skill + 一个被动引用的 skill
 
 | skill | 什么时候用 | 干什么 |
 |---|---|---|
 | `/harness-onboard` | 接入一个新仓库 | 装 `.harness/`，定边界，蒸馏首版 STATE.md |
 | `/harness-compact` | 状态乱了，或定时 | 收敛 STATE.md，归档过期内容，git 留痕 |
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
+| `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |
 
-## 四个 hook
+## 五个 hook
 
 | hook | 事件 | 作用 |
 |---|---|---|
-| `harness-session-start.py` | SessionStart | 注入 STATE.md、journal 尾部、自主边界、输出契约 |
+| `harness-session-start.py` | SessionStart | 注入 STATE.md、journal 尾部、自主边界、输出契约（读 `harness-output-format` skill） |
+| `harness-prompt-contract.py` | UserPromptSubmit | 每轮回复前追加一句输出格式提醒，防止长 session 里 SessionStart 的注入被淡忘/压缩掉 |
 | `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
 | `harness-envelope.py` | PreToolUse | 安全区内直接放行，安全区外硬拦 |
-| `harness-stop-contract.py` | Stop | 在 envelope 内停下来征求同意时推回去一次；散文长回复提醒一次 |
+| `harness-stop-contract.py` | Stop | 在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒一次（pre 机制失效时的最后一道） |
 
-后两个每 session 最多各触发一次守卫，不会循环。所有 hook 在没有配置的目录下静默返回。
+除 journal 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
 
 ## 项目目录长这样
 

@@ -334,3 +334,23 @@ def truncate(text, limit):
     if not text or len(text) <= limit:
         return text or ""
     return text[:limit] + f"\n…[truncated, {len(text) - limit} more chars]"
+
+
+def load_skill_body(name):
+    """Read a sibling skill's SKILL.md body with its YAML frontmatter stripped.
+
+    Resolved relative to this file (not cwd), so it works identically whether
+    called from the real path in this repo or through the ~/.claude/hooks
+    symlink. Returns "" on any failure — callers must have a fallback, since
+    hooks must never fail the turn over a missing/broken skill file.
+    """
+    path = Path(__file__).resolve().parent.parent / "skills" / name / "SKILL.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end != -1:
+            text = text[end + 4:]
+    return text.strip()

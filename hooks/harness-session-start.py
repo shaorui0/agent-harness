@@ -17,13 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import (  # noqa: E402
-    emit_context, load_config, read_event, safe_main, sibling_memory_indexes,
-    truncate,
+    emit_context, load_config, load_skill_body, read_event, safe_main,
+    sibling_memory_indexes, truncate,
 )
 
-CONTRACT = """## 作业契约（harness）
-
-**输出结构化、压缩、无描述性废话。** 实质性回复用这个骨架：
+# Fallback only — the real source of truth is skills/harness-output-format/SKILL.md.
+# Used if that file is ever missing or the symlink is broken, so a hook failure
+# never silently drops the format contract.
+FALLBACK_FORMAT = """**输出结构化、压缩、无描述性废话。** 实质性回复用这个骨架：
 
 ```
 ========= 【结论】 ==========================
@@ -51,7 +52,9 @@ CONTRACT = """## 作业契约（harness）
 - 段名放 `【】`，分隔线用等号补到大致等宽
 - 删掉过渡句、铺垫句、总结句。信息一条不丢，描述一句不留
 - 数字、路径、`file:line`、命令原样给，不要转述
-- 纯对话、简单确认、单点问答不受此约束
+- 纯对话、简单确认、单点问答不受此约束"""
+
+CONTRACT_REST = """
 
 **并行看合并成本。** 调查任务先拆正交维度，维度之间结果不重叠才并行派 subagent（默认 %(agents)d 个，上限 %(max_agents)d）。
 同一个问题要多个意见时串行，不要并行，因为合并成本会落回人脑。
@@ -59,6 +62,14 @@ CONTRACT = """## 作业契约（harness）
 **报告只报差异和决策。** 过程写进文件，回复里只留结论、证据和待决项。
 
 **删除走归档。** 任何清理动作用 `git mv` 进 archive 并写清单，不用 `rm`。"""
+
+
+def render_contract(agents, max_agents):
+    fmt = load_skill_body("harness-output-format") or FALLBACK_FORMAT
+    return "## 作业契约（harness）\n\n" + fmt + (CONTRACT_REST % {
+        "agents": agents,
+        "max_agents": max_agents,
+    })
 
 NO_PROJECT_HINT = """
 这个目录没有 `.harness/` 配置，当前只加载了全局契约。
@@ -176,10 +187,10 @@ def render_memory(cwd, root, cfg):
 
 
 def build(cfg, root, cwd="."):
-    contract = CONTRACT % {
-        "agents": int((cfg.get("explore") or {}).get("default_agents") or 3),
-        "max_agents": int((cfg.get("explore") or {}).get("max_agents") or 5),
-    }
+    contract = render_contract(
+        int((cfg.get("explore") or {}).get("default_agents") or 3),
+        int((cfg.get("explore") or {}).get("max_agents") or 5),
+    )
     if root is None:
         mem = render_memory(cwd, root, cfg)
         return "\n\n".join(x for x in [mem, contract, NO_PROJECT_HINT.strip()] if x)

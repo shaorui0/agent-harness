@@ -50,8 +50,9 @@ CONTINUE_REASON = """harness continue guard：这一轮停在了征求同意上�
 
 CONTRACT_REMINDER = """harness output contract：刚才的回复是长篇散文。
 
-后续实质性回复用这个骨架：【结论】/【证据】/【问题】/【下一步】。
-过程细节写进文件，回复里只留结论、证据出处和待决项。这条提醒每个 session 只出现一次。"""
+用 skill `harness-output-format` 定义的骨架重写后续实质性回复：【结论】/【证据】/【问题】/【下一步】。
+过程细节写进文件，回复里只留结论、证据出处和待决项。这条提醒每个 session 只出现一次
+（每轮开头的 harness-prompt-contract 提醒是这条规则的常驻版本，这里是失效时的兜底）。"""
 
 
 def asks_permission(text):

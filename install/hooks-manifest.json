@@ -7,6 +7,13 @@
       ]
     }
   ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {"type": "command", "command": "python3 ~/.claude/hooks/harness-prompt-contract.py", "timeout": 5}
+      ]
+    }
+  ],
   "PreToolUse": [
     {
       "matcher": "Bash|Edit|Write|NotebookEdit",

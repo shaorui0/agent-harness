@@ -47,7 +47,9 @@ def say(tag, msg):
 
 
 def hook_files():
-    return sorted(p for p in HOOKS_SRC.glob("*.py"))
+    """Every .py file under hooks/ *except* test_*.py — those are plain
+    `python3 hooks/test_x.py` scripts, not hooks to be symlinked/registered."""
+    return sorted(p for p in HOOKS_SRC.glob("*.py") if not p.name.startswith("test_"))
 
 
 def manifest():
@@ -256,7 +258,7 @@ def cmd_init(args):
     if hdir.exists() and not args.force:
         print(f"{hdir} already exists. Re-run with --force to overwrite project.yml.")
         return 1
-    for sub in ("journal", "archive"):
+    for sub in ("journal", "archive", "scope"):
         (hdir / sub).mkdir(parents=True, exist_ok=True)
 
     tpl = (TEMPLATES / "project.yml").read_text(encoding="utf-8")

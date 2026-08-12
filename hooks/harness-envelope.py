@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook — the autonomy envelope.
+PreToolUse hook — the autonomy envelope + scope gate.
 
 Reads the project's `autonomy` block and decides three ways:
 
@@ -13,6 +13,15 @@ and everything outside it should be stopped rather than merely prompted.
 
 Patterns are regular expressions matched against the command string. An invalid
 regex degrades to a literal substring match.
+
+Scope gate (see docs/scope-and-spec-gate-design.md): a second, orthogonal write
+restriction, checked independently of the write_roots boundary above. It never
+grants `allow` — it only ever adds a `deny` on top of whatever the write_roots
+check decides. Writes inside `scope_gate`'s protected paths require a
+`status: confirmed` scope artifact under `.harness/scope/` whose `covers` list
+includes that path. This is deliberately NOT session- or branch-inferred — the
+artifact explicitly declares what it covers, the hook only checks path
+prefixes, the same shape as `write_roots` itself.
 """
 
 import re
@@ -20,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _harness import emit, load_config, read_event, safe_main  # noqa: E402
+from _harness import emit, load_config, read_event, read_yaml_file, safe_main  # noqa: E402
 
 
 def matches(pattern, text):
@@ -75,25 +84,94 @@ def check_bash(command, auto):
     emit()
 
 
-def check_write(file_path, auto, root):
+def _resolve_under(root, prefix, target):
+    """True if `target` is `root/prefix` or lives under it."""
+    try:
+        allowed = (root / str(prefix)).resolve()
+    except Exception:
+        return False
+    return target == allowed or allowed in target.parents
+
+
+def write_roots_decision(file_path, cfg, root):
+    """Pure decision for the write_roots boundary: ('deny', reason) or None.
+    None means "no opinion" (either no roots configured, or the path is
+    inside them) — it never actively grants allow."""
+    auto = cfg.get("autonomy") or {}
     roots = auto.get("write_roots") or []
     if not roots or root is None or not file_path:
-        emit()
+        return None
     try:
         target = Path(file_path).resolve()
     except Exception:
-        emit()
-    for r in roots:
-        try:
-            allowed = (root / str(r)).resolve()
-        except Exception:
-            continue
-        if target == allowed or allowed in target.parents:
-            emit()
-    decide(
+        return None
+    if any(_resolve_under(root, r, target) for r in roots):
+        return None
+    return (
         "deny",
         f"harness envelope: `{file_path}` 在允许的写入范围之外（write_roots: {', '.join(str(r) for r in roots)}）。",
     )
+
+
+def _effective_protected_paths(cfg):
+    """scope_gate.protected_paths, falling back to write_roots, falling back
+    to the whole project root — see docs/scope-and-spec-gate-design.md 已拍板 Q3."""
+    gate = cfg.get("scope_gate") or {}
+    configured = gate.get("protected_paths") or []
+    if configured:
+        return configured
+    write_roots = (cfg.get("autonomy") or {}).get("write_roots") or []
+    if write_roots:
+        return write_roots
+    return ["."]
+
+
+def _confirmed_scope_covers(root, target):
+    """Scan `.harness/scope/*.yml` for a `status: confirmed` artifact whose
+    `covers` list includes a prefix `target` falls under."""
+    scope_dir = root / ".harness" / "scope"
+    if not scope_dir.is_dir():
+        return False
+    for path in scope_dir.glob("*.yml"):
+        data = read_yaml_file(path)
+        if data.get("status") != "confirmed":
+            continue
+        for prefix in data.get("covers") or []:
+            if _resolve_under(root, prefix, target):
+                return True
+    return False
+
+
+def scope_gate_decision(file_path, cfg, root):
+    """Pure decision for the scope gate: ('deny', reason) or None. Never
+    'allow' — this only ever adds a restriction on top of write_roots, it
+    does not grant permission write_roots would otherwise withhold."""
+    gate = cfg.get("scope_gate") or {}
+    if not gate.get("enabled", True) or root is None or not file_path:
+        return None
+    try:
+        target = Path(file_path).resolve()
+    except Exception:
+        return None
+    protected = _effective_protected_paths(cfg)
+    if not any(_resolve_under(root, p, target) for p in protected):
+        return None
+    if _confirmed_scope_covers(root, target):
+        return None
+    return (
+        "deny",
+        f"harness scope gate: `{file_path}` 在受保护范围内（protected_paths: "
+        f"{', '.join(str(p) for p in protected)}），但没有找到覆盖它的 `status: confirmed` "
+        f"scope artifact。先跑 `/harness-scope-gate` 把这个改动的边界问清楚。",
+    )
+
+
+def check_write(file_path, cfg, root):
+    for decision_fn in (write_roots_decision, scope_gate_decision):
+        result = decision_fn(file_path, cfg, root)
+        if result is not None:
+            decide(*result)
+    emit()
 
 
 def main():
@@ -109,7 +187,7 @@ def main():
         if command:
             check_bash(command, auto)
     elif tool in ("Edit", "Write", "NotebookEdit"):
-        check_write(tool_input.get("file_path"), auto, root)
+        check_write(tool_input.get("file_path"), cfg, root)
     emit()
 
 

@@ -25,6 +25,8 @@ AI 让执行变便宜之后，事情变多了，省下来的时间没有落到�
 | session 开头加载项目状态 | `SessionStart` hook | 哪些结论已经过期 | `/harness-compact` skill |
 | session 结尾留下记录 | `Stop` hook | 怎么拆维度并行调查 | `/harness-explore` skill |
 | 越界动作被拦住 | `PreToolUse` hook | 一个新项目该怎么配 | `/harness-onboard` skill |
+| 未声明边界的写操作被挡住 | `PreToolUse` hook（scope gate，见 `docs/scope-and-spec-gate-design.md`） | 边界该怎么问、问到什么程度算清楚 | `/harness-scope-gate` skill |
+| spec 未收敛不许停 | `Stop` hook（spec-review guard，同上文档） | 这份 spec 是不是真的做完了 | `/harness-spec-review` skill |
 
 ### 原则二：写入不做判断，判断延迟到压缩
 

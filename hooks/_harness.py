@@ -39,6 +39,7 @@ DEFAULTS = {
         "k8s": {"allow_contexts": [], "deny_contexts": []},
     },
     "explore": {"default_agents": 3, "max_agents": 5},
+    "scope_gate": {"enabled": True, "protected_paths": []},
     "output": {"contract": "structured", "nudge_once": True, "auto_continue": True},
     "memory": {"enabled": True, "include_ancestors": True, "max_chars": 2500},
 }
@@ -231,6 +232,27 @@ def guard_once(session_id, tag):
         if marker.exists():
             return False
         marker.write_text("1", encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def guard_upto(session_id, tag, limit):
+    """Returns True up to `limit` times per (session_id, tag), then False.
+
+    Unlike guard_once, this lets a recurring violation (e.g. format drift
+    across a long session) get nudged more than once instead of going
+    silent after the first catch.
+    """
+    if not session_id:
+        return False
+    try:
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        marker = RUN_DIR / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', session_id)}.{tag}"
+        count = int(marker.read_text(encoding="utf-8").strip()) if marker.exists() else 0
+        if count >= limit:
+            return False
+        marker.write_text(str(count + 1), encoding="utf-8")
         return True
     except Exception:
         return False

@@ -57,6 +57,15 @@ autonomy:
     deny_contexts: []
       # - kwestproda
 
+# ── scope gate ─────────────────────────────────────────────────
+# 全局默认开启（BREAKING：老项目第一次触发写操作会被 deny，需要手动跑一次
+# /harness-scope-gate 补一个 confirmed scope，见 docs/scope-and-spec-gate-design.md）。
+# protected_paths 留空时按顺序回退：write_roots -> 整个项目根目录。
+scope_gate:
+  enabled: true
+  protected_paths: []
+    # - docs/pool-system
+
 # ── 调查并行度 ─────────────────────────────────────────────────
 explore:
   default_agents: 3

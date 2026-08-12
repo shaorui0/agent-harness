@@ -26,14 +26,18 @@ cd /path/to/repo
 
 然后在那个仓库里跑 `/harness-onboard`，它会摸底、填 `project.yml` 的自主边界、从现有文档蒸馏第一版 `STATE.md`。
 
-## 四个主动 skill + 一个被动引用的 skill
+## 六个主动 skill + 一个被动引用的 skill
 
 | skill | 什么时候用 | 干什么 |
 |---|---|---|
 | `/harness-onboard` | 接入一个新仓库 | 装 `.harness/`，定边界，蒸馏首版 STATE.md |
 | `/harness-compact` | 状态乱了，或定时 | 收敛 STATE.md，归档过期内容，git 留痕 |
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
+| `/harness-scope-gate` | 中大型改动开工前 | 逐题问清楚目标/不做什么/验收标准/允许碰哪些路径，写成 `confirmed` 的 scope artifact——`harness-envelope.py` 只认这份 artifact 的 `covers` 字段，见 [docs/scope-and-spec-gate-design.md](docs/scope-and-spec-gate-design.md) |
+| `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`，解开 `harness-stop-contract.py` 的收敛检查 |
 | `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |
+
+**BREAKING：`scope_gate` 全局默认开启。** 已经 `/harness-onboard` 过的项目，`install` 更新到这个版本之后，第一次落在 `write_roots`（或没配置 `write_roots` 时，整个仓库）范围内的写操作会被 deny，因为它们从来没有 `.harness/scope/` 下的 `confirmed` artifact。手动跑一次 `/harness-scope-gate` 补上即可；也可以在项目的 `project.yml` 里把 `scope_gate.enabled` 设成 `false` 退出这层限制。
 
 ## 六个 hook
 
@@ -41,10 +45,10 @@ cd /path/to/repo
 |---|---|---|
 | `harness-session-start.py` | SessionStart | 注入 STATE.md、journal 尾部、自主边界、输出契约（读 `harness-output-format` skill） |
 | `harness-prompt-contract.py` | UserPromptSubmit | 每轮回复前追加一句输出格式提醒，防止长 session 里 SessionStart 的注入被淡忘/压缩掉 |
-| `harness-envelope.py` | PreToolUse | 安全区内直接放行，安全区外硬拦 |
+| `harness-envelope.py` | PreToolUse | 安全区内直接放行，安全区外硬拦；外加 scope gate——写操作命中受保护路径且没有 `confirmed` scope artifact 覆盖，同样硬拦 |
 | `harness-oplog.py` | PostToolUse | 变更留痕。journal 记「说了什么」，oplog 记「动了什么」，带 `# INTENT:` 和当时的 git ref；只读命令跳过 |
 | `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
-| `harness-stop-contract.py` | Stop | 在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒一次（pre 机制失效时的最后一道） |
+| `harness-stop-contract.py` | Stop | 收敛检查最先——有 `confirmed` 但未收敛的 scope 就拦一次；然后是在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒一次（pre 机制失效时的最后一道） |
 
 除 journal 和 oplog 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
 
@@ -57,6 +61,8 @@ cd /path/to/repo
 ├── journal/
 │   └── 2026-08-08.jsonl # WAL，只增不改
 ├── oplog.jsonl          # 变更留痕：写了什么文件、移了什么、跑了什么 mutating 命令
+├── scope/
+│   └── <slug>.yml       # /harness-scope-gate 的产出，被 harness-envelope.py 和 harness-stop-contract.py 检查
 ├── archive/
 │   └── 2026-08-15/
 │       ├── ARCHIVE-MANIFEST.md   # 每条：原路径 / 原因 / 被什么取代 / 时间

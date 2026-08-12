@@ -5,6 +5,7 @@ harness — install / verify / attach the harness mechanism.
   harness install [--dry-run]   register hooks + skills into ~/.claude, idempotent
   harness doctor                verify every link, entry and directory; nonzero on FAIL
   harness init [PATH]           attach .harness/ to a project (default: cwd)
+  harness context-init [PATH]   attach .context/ (insight journal) to a project
   harness status [PATH]         show the resolved config for a directory
   harness oplog [PATH]          show the change log (what was written / moved / applied)
   harness uninstall [--dry-run] remove harness hooks and settings entries
@@ -276,31 +277,66 @@ def cmd_init(args):
     (hdir / ".gitkeep").write_text("", encoding="utf-8")
 
     if args.local_ignore:
-        try:
-            top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root,
-                                 capture_output=True, text=True, timeout=5).stdout.strip()
-            gitdir = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root,
-                                    capture_output=True, text=True, timeout=5).stdout.strip()
-        except Exception:
-            top = gitdir = ""
-        if top and gitdir:
-            gitdir_path = Path(gitdir) if Path(gitdir).is_absolute() else Path(root) / gitdir
-            exclude = gitdir_path / "info" / "exclude"
-            rel = hdir.relative_to(Path(top).resolve())
-            line = f"/{rel}/"
-            exclude.parent.mkdir(parents=True, exist_ok=True)
-            body = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
-            if line not in body.splitlines():
-                with open(exclude, "a", encoding="utf-8") as fh:
-                    fh.write(f"\n# harness: local-only project state\n{line}\n")
-                print(f"ignored locally via {exclude} ({line})")
-            else:
-                print(f"already ignored locally: {line}")
-        else:
-            print("not a git repo; --local-ignore skipped")
+        add_local_ignore(root, hdir)
 
     print(f"attached: {hdir}")
     print("edit .harness/project.yml (autonomy + context_files), then run /harness-onboard")
+    return 0
+
+
+def add_local_ignore(root, target_dir):
+    """Ignore target_dir via .git/info/exclude — no tracked change to the repo."""
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root,
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+        gitdir = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=root,
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        top = gitdir = ""
+    if not (top and gitdir):
+        print("not a git repo; --local-ignore skipped")
+        return
+    gitdir_path = Path(gitdir) if Path(gitdir).is_absolute() else Path(root) / gitdir
+    exclude = gitdir_path / "info" / "exclude"
+    rel = target_dir.relative_to(Path(top).resolve())
+    line = f"/{rel}/"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    body = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+    if line not in body.splitlines():
+        with open(exclude, "a", encoding="utf-8") as fh:
+            fh.write(f"\n# harness: local-only project state\n{line}\n")
+        print(f"ignored locally via {exclude} ({line})")
+    else:
+        print(f"already ignored locally: {line}")
+
+
+# ------------------------------------------------------------------ context-init
+
+def cmd_context_init(args):
+    root = Path(args.path or ".").resolve()
+    cdir = root / ".context"
+    if cdir.exists() and not args.force:
+        print(f"{cdir} already exists. Re-run with --force to overwrite project.yml.")
+        return 1
+    ctpl_dir = TEMPLATES / "context"
+    (cdir / "journal").mkdir(parents=True, exist_ok=True)
+
+    tpl = (ctpl_dir / "project.yml").read_text(encoding="utf-8")
+    (cdir / "project.yml").write_text(tpl.replace("__NAME__", root.name), encoding="utf-8")
+
+    obs = cdir / "OBSERVATIONS.md"
+    if not obs.exists():
+        obs.write_text(
+            (ctpl_dir / "OBSERVATIONS.md").read_text(encoding="utf-8").replace("__NAME__", root.name),
+            encoding="utf-8",
+        )
+    (cdir / ".gitkeep").write_text("", encoding="utf-8")
+
+    if args.local_ignore:
+        add_local_ignore(root, cdir)
+
+    print(f"attached: {cdir}")
+    print("edit .context/project.yml (sources), then run /context-observe")
     return 0
 
 
@@ -401,6 +437,12 @@ def main():
     p.add_argument("--local-ignore", action="store_true",
                    help="ignore .harness/ via .git/info/exclude (no tracked change to the repo)")
     p.set_defaults(fn=cmd_init)
+    p = sub.add_parser("context-init")
+    p.add_argument("path", nargs="?")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--local-ignore", action="store_true",
+                   help="ignore .context/ via .git/info/exclude (no tracked change to the repo)")
+    p.set_defaults(fn=cmd_context_init)
     p = sub.add_parser("status"); p.add_argument("path", nargs="?"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("oplog")
     p.add_argument("path", nargs="?")

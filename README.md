@@ -26,12 +26,13 @@ cd /path/to/repo
 
 然后在那个仓库里跑 `/harness-onboard`，它会摸底、填 `project.yml` 的自主边界、从现有文档蒸馏第一版 `STATE.md`。
 
-## 六个主动 skill + 一个被动引用的 skill
+## 七个主动 skill + 一个被动引用的 skill
 
 | skill | 什么时候用 | 干什么 |
 |---|---|---|
 | `/harness-onboard` | 接入一个新仓库 | 装 `.harness/`，定边界，蒸馏首版 STATE.md |
 | `/harness-compact` | 状态乱了，或定时 | 收敛 STATE.md，归档过期内容，git 留痕 |
+| `/context-observe` | 想知道这段时间干了什么，或定时 | 扫 git log / harness journal / Claude Code 记忆 / 手写日记，append 进 `.context/OBSERVATIONS.md`，不判断去留 |
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
 | `/harness-scope-gate` | 中大型改动开工前 | 逐题问清楚目标/不做什么/验收标准/允许碰哪些路径，写成 `confirmed` 的 scope artifact——`harness-envelope.py` 只认这份 artifact 的 `covers` 字段，见 [docs/scope-and-spec-gate-design.md](docs/scope-and-spec-gate-design.md) |
 | `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`，解开 `harness-stop-contract.py` 的收敛检查 |
@@ -80,6 +81,32 @@ echo /path/to/repo >> ~/.harness/projects.txt
 ```
 
 脚本自带三重守卫：没有 `.harness/` 跳过、距上次收敛不足 7 天跳过、工作区脏跳过。
+
+## 洞察观测：`.context/`
+
+`.harness/STATE.md` 回答「现在状态是什么」，会覆盖旧结论。`.context/OBSERVATIONS.md` 回答「这段时间发生过什么、
+有什么值得沉淀的模式」，append-only，历史条目不删不改。两套机制独立，只装一个也行。
+
+```bash
+cd /path/to/repo
+/Users/rshao/work/agent-harness/bin/harness context-init .
+```
+
+生成 `.context/{project.yml,OBSERVATIONS.md,journal/}`。跑 `/context-observe` 做一次观测，
+或挂定时：
+
+```bash
+echo /path/to/repo >> ~/.harness/context-projects.txt
+0 21 * * * /Users/rshao/work/agent-harness/periodic/context-observe-cron.sh \
+            --projects-file "$HOME/.harness/context-projects.txt" >> /tmp/context-observe.log 2>&1
+```
+
+四路输入，缺一路自动跳过：`git log`、`.harness/journal/*.jsonl`（如果这个项目也接了 `.harness/`）、
+Claude Code 的自动记忆目录（按 cwd 算 slug，见 `~/.claude/projects/<slug>/memory/`）、
+`.context/journal/YYYY-MM-DD.md` 里的手写笔记。按🔴🟡🟢分级 append，同一天幂等。
+
+**目前只做 L1 Observer（记录），还没有 L2 Reflector（晋升/GC）。** 攒够几轮真实数据、看清楚哪些 🔴
+条目反复出现之后再补，现在补会是凭空设计。
 
 ## 拆
 

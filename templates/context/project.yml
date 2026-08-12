@@ -1,0 +1,30 @@
+# .context/project.yml — 这个项目的洞察观测契约
+#
+# 独立于 .harness/project.yml。.harness 管「当前状态 + 自主边界」，
+# .context 管「这段时间发生过什么、有什么值得沉淀」。两者可以只装一个。
+
+name: __NAME__
+
+observations:
+  file: .context/OBSERVATIONS.md
+  stamp: .context/.last-observe   # 幂等：同一天不重复扫描
+
+# 人工日记（可选）。想手写当天笔记就在这里放一个 YYYY-MM-DD.md，
+# /context-observe 会把它当成一路输入，和自动扫描的结果一起分类。
+journal:
+  dir: .context/journal
+
+# 扫描源，缺省全开。项目没有 .harness/ 就自动跳过 harness_journal，
+# 没有 Claude Code 会话记录就自动跳过 claude_memory。
+sources:
+  git_log: true
+  harness_journal: true
+  claude_memory: true
+  manual_journal: true
+
+# claude_memory 源要按 cwd 算 slug 去找 ~/.claude/projects/<slug>/memory/MEMORY.md。
+# 如果这个项目从多个不同的 cwd 进入过 Claude Code（根目录 vs 子目录），
+# 每个 cwd 都会有独立的记忆目录，都要扫，不要只扫当前这次注入的那份。
+claude_memory:
+  extra_roots: []
+    # - /absolute/path/if/entered/from/a/different/cwd

@@ -70,9 +70,11 @@ review:
   concerns: [...]
 ```
 
-**强制点**（扩展现有 Stop hook，复用已有的一次性 guard 机制）：
+~~**强制点**（扩展现有 Stop hook，复用已有的一次性 guard 机制）：~~
 
-`harness-stop-contract.py` 加一步：stop 前检查当前 session 关联的 scope artifact 是否存在且 `review.status` 已经是 `CLEARED` 或 `DONE_WITH_CONCERNS`。不是就用现有 `guard_once` 拦一次（跟 continue-guard 共享"一个 session 只推一次"的防死循环设计），提醒跑 `/harness-spec-review`。
+~~`harness-stop-contract.py` 加一步：stop 前检查当前 session 关联的 scope artifact 是否存在且 `review.status` 已经是 `CLEARED` 或 `DONE_WITH_CONCERNS`。不是就用现有 `guard_once` 拦一次（跟 continue-guard 共享"一个 session 只推一次"的防死循环设计），提醒跑 `/harness-spec-review`。~~
+
+**已推翻，2026-08-13 —— 这个组件现在没有强制点，纯 pull。** 见下方"修订记录"。scope-gate（组件一）的 PreToolUse 强制点不受影响，照旧生效。
 
 ## 与现有组件的关系
 
@@ -150,7 +152,7 @@ COVERAGE: 0/7 已覆盖
 - [x] 架构评审：scope 归属判定 / 存量项目迁移 / hook 优先级 三个决策点已拍板
 - [x] 实现：`project.yml` schema 变更（`scope_gate.protected_paths`，全局默认开启，`hooks/_harness.py` DEFAULTS）
 - [x] 实现：`harness-envelope.py` 重构 `check_write` + 新增 `check_scope`（纯函数写法，`write_roots_decision`/`scope_gate_decision`）
-- [x] 实现：`harness-stop-contract.py` 新增收敛检查（`pending_spec_reviews`，跑在 continue-guard 之前）
+- [x] ~~实现：`harness-stop-contract.py` 新增收敛检查（`pending_spec_reviews`，跑在 continue-guard 之前）~~ —— 当天即推翻并删除，见"修订记录"
 - [x] 实现：新 skill `harness-scope-gate`、`harness-spec-review`
 - [x] 实现：`hooks/test_envelope.py`（7 例）+ `hooks/test_stop_contract.py`（3 例），10/10 通过
 - [x] 升级说明标注 BREAKING（README.md 已加，`bin/harness doctor`/`install` 已跑）
@@ -168,4 +170,47 @@ COVERAGE: 0/7 已覆盖
 | 同一个 scope，写 `covers` 之外的路径 | `e2e_test/foo.py` | 仍然 `deny` |
 | Stop hook，scope confirmed 但 `review.status` 未收敛 | 同上 | 拦一次，提示跑 `/harness-spec-review` |
 
-顺带发现（非本次改动引入，是 envelope 一直如此的既有行为）：`load_config` 按**当前 session 的 cwd** 找项目根，不是按目标文件路径。从 agent-harness 的 session 直接 `Write` 到 `cre6630-infra` 下的文件不会触发它的 envelope（`root=None`）——跨项目远程写入从来不在这层保护范围内，这次验证因此改用子进程 + 显式 `cwd` 模拟真实的"在那个项目里工作"场景，而不是从当前 session 直接操作。
+顺带发现之一（非本次改动引入，是 envelope 一直如此的既有行为）：`load_config` 按**当前 session 的 cwd** 找项目根，不是按目标文件路径。从 agent-harness 的 session 直接 `Write` 到 `cre6630-infra` 下的文件不会触发它的 envelope（`root=None`）——跨项目远程写入从来不在这层保护范围内，这次验证因此改用子进程 + 显式 `cwd` 模拟真实的"在那个项目里工作"场景，而不是从当前 session 直接操作。
+
+## 修订记录
+
+### 2026-08-14：`protected_paths` 撤销默认从严回退（组件一不再默认全局强制）
+
+**触发**：`cre6630-infra`（唯一显式配置了 `scope_gate.protected_paths` 的已 onboard 项目）在两天内积累了 15 个 `confirmed` scope artifact，其中 11 个从未跑过 `/harness-spec-review` 收敛——绝大多数是"为了解锁写权限"临时补的，不是真的需要提前澄清边界的中大型改动。用户原话大意：git 本身就能记录修改、能回退，仓库里的文件本来就是可复审的，没必要每次写文件前先问一遍范围。
+
+**根本问题跟组件二当天被推翻的是同一类**：`_effective_protected_paths` 未配置时依次回退到 `write_roots`、再到整个项目根目录 `.`，这条"默认从严"逻辑把一次性、低风险的高频事件（普通文件编辑）当成了需要提前声明边界的高风险事件。真正的风险边界应该是**外部可见/不可逆**（push、部署、删除），本地、git 跟踪的编辑本就可回退，git diff/revert 已经是安全网，不需要一层显式确认流程叠在上面。
+
+**决议**：`_effective_protected_paths`（`hooks/harness-envelope.py`）去掉对 `write_roots` 和 `"."` 的回退，纯粹返回 `scope_gate.protected_paths` 配置值——留空即不限制，不再有任何隐式默认覆盖面。`scope_gate` 这个 skill 本身不删，退回建议性工具（跟 `harness-explore`/`harness-compact` 同级）：model 判断任务规模大时主动建议，或用户显式要求时才用，不再挂 PreToolUse 默认强制点。
+
+**保留的价值**：真正想给特定路径加额外摩擦（比如这套 harness 自己的自举文件、或某个项目里格外敏感的目录），项目可以在 `project.yml` 里显式列出 `scope_gate.protected_paths`——这时候原有的"deny 直到有 confirmed scope"逻辑照旧生效，不受这次改动影响。
+
+**改动**：`harness-envelope.py` 的 `_effective_protected_paths` 精简为单行；`test_envelope.py` 新增 `test_unconfigured_protected_paths_never_restricts`、`test_confirmed_scope_must_cover_the_target_not_just_any_protected_path`，两个既有测试（`test_no_confirmed_scope_denies`/`test_draft_scope_does_not_satisfy_gate`）改为显式传 `protected_paths`（原先依赖回退逻辑，回退没了就要显式配置才能测同一场景）；`README.md`/`templates/project.yml`/`skills/harness-scope-gate/SKILL.md` 同步撤下 BREAKING 说明，改成 opt-in 说明。`cre6630-infra` 的 `.harness/project.yml` 里 `scope_gate.protected_paths` 单独清空——那份配置本身跟同文件里 `write_roots` 旁边的注释（"真正的风险在集群侧，不在这个 repo 的文件上"）矛盾，是这套机制上线当天被动生成的，不是深思熟虑的选择。
+
+### 2026-08-13：删除 Stop hook 的 spec-review guard（组件二不再有强制点）
+
+**触发**：上线当天，在 `agent-harness` 仓库里工作的 session 被 Stop hook 拦住，理由是
+`cre6630-infra` 下的 `bdc-alert-tables-migration` 和 `doc98-criteria-wording-fix` 两个 scope 未收敛——
+那是两分钟前另一个还活着的 session 建的 artifact，跟被拦的这轮工作毫无关系。
+
+**两个都是真问题，且第二个是根本原因**：
+
+| 问题 | 表现 |
+|---|---|
+| 拦错了人 | `pending_spec_reviews` 扫的是项目根下**所有** `confirmed` artifact，没有 session 归属概念。被拦的 session 唯一的解法是替别人跑收敛判定——等于替另一个正在做的活儿宣布"做完了" |
+| 污染上下文 | 每次拦截都把别的任务的 slug 列表注进这个 session。用户的原话："不要在每个 session、甚至每轮对话都不断地去扫所有的任务列表，这样会把 session 的上下文给打乱" |
+
+**为什么不是改成按 session 过滤**：加个 `session_id` 字段能修掉"拦错人"，修不掉"扫全局"。
+更根本的是这违反 DESIGN.md 原则一的另一面——原则一说"需要判断的事做成 skill"，
+"这份 spec 是不是真的做完了"从来就是判断，之前把它挂到 hook 上是想借事件拿到强制力，
+代价是 hook 每轮都得去猜哪些 artifact 跟这轮有关，而 hook 不该做这种猜测。
+
+**决议**：删掉 guard，组件二退回纯 pull。`/harness-spec-review` 保留全部收敛逻辑，
+新增两条约束：扫描只在当前项目根、不点名就只报告未收敛列表不代判。
+
+**代价，明写出来**：没有任何东西会提醒"有 scope 忘了收敛"。artifact 会以 `NOT_CLEARED`
+或无 `review` 段的形式留在 `.harness/scope/` 下，直到下次有人主动跑 `/harness-spec-review` 盘点。
+接受——一个会拦错人的提醒比没有提醒更糟。
+
+**改动**：`harness-stop-contract.py` 删 `pending_spec_reviews`/`spec_review_reason`；
+`test_stop_contract.py` 第一例反转成回归测试（未收敛 artifact **不得** 拦），钉住"不扫全局"这个性质；
+README / DESIGN.md / 两个 skill 的相关表述同步。

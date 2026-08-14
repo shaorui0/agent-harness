@@ -58,9 +58,12 @@ autonomy:
       # - kwestproda
 
 # ── scope gate ─────────────────────────────────────────────────
-# 全局默认开启（BREAKING：老项目第一次触发写操作会被 deny，需要手动跑一次
-# /harness-scope-gate 补一个 confirmed scope，见 docs/scope-and-spec-gate-design.md）。
-# protected_paths 留空时按顺序回退：write_roots -> 整个项目根目录。
+# 纯 opt-in：protected_paths 留空 = 完全不限制，不会回退到 write_roots
+# 或整个仓库（2026-08-14 撤销了那条默认从严逻辑，见
+# docs/scope-and-spec-gate-design.md 的撤销记录）。本地、git 跟踪的编辑
+# 本身就可回退，git 是安全网，不需要每次写文件前先声明范围。
+# 只有真正想给特定路径加额外摩擦时才显式列出来（比如这套 harness 自己的
+# 自举文件），不要当成默认要开的开关。
 scope_gate:
   enabled: true
   protected_paths: []

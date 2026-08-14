@@ -22,6 +22,15 @@ check decides. Writes inside `scope_gate`'s protected paths require a
 includes that path. This is deliberately NOT session- or branch-inferred — the
 artifact explicitly declares what it covers, the hook only checks path
 prefixes, the same shape as `write_roots` itself.
+
+Opt-in only: `protected_paths` defaults to empty and is never inferred from
+`write_roots` or the project root. A local, git-tracked edit is reversible by
+construction — git is the safety net, not a pre-declared scope. This gate
+exists for the rare case a project wants extra friction on specific paths
+(e.g. files that are themselves part of the harness's own bootstrapping), not
+as a default tax on every write. See docs/scope-and-spec-gate-design.md's
+2026-08-14 revert entry for why the earlier "fall back to the whole repo"
+default was removed.
 """
 
 import re
@@ -114,16 +123,11 @@ def write_roots_decision(file_path, cfg, root):
 
 
 def _effective_protected_paths(cfg):
-    """scope_gate.protected_paths, falling back to write_roots, falling back
-    to the whole project root — see docs/scope-and-spec-gate-design.md 已拍板 Q3."""
+    """scope_gate.protected_paths, taken as-is. No fallback to write_roots or
+    the whole project root — the gate is opt-in, not a default-deny surface.
+    See docs/scope-and-spec-gate-design.md's 2026-08-14 revert entry."""
     gate = cfg.get("scope_gate") or {}
-    configured = gate.get("protected_paths") or []
-    if configured:
-        return configured
-    write_roots = (cfg.get("autonomy") or {}).get("write_roots") or []
-    if write_roots:
-        return write_roots
-    return ["."]
+    return gate.get("protected_paths") or []
 
 
 def _confirmed_scope_covers(root, target):

@@ -5,7 +5,7 @@ description: 中大型改动开工前，把边界（目标产出/不做什么/�
 
 # harness-scope-gate
 
-见 `docs/scope-and-spec-gate-design.md`：这是"开工前澄清"的强制点，但强制力不在触发（触发永远是判断，不能被 hook 硬性检测），在闸门——写完这个 artifact 之前，`harness-envelope.py` 会把 `covers` 范围内的写操作全部 deny。
+见 `docs/scope-and-spec-gate-design.md`：这是"开工前澄清"的工具，**纯 opt-in**（2026-08-14 撤销了默认全局强制）——只有项目在 `project.yml` 显式配置了非空的 `scope_gate.protected_paths` 时，`harness-envelope.py` 才会在那些路径上要求 `covers` 范围内有 `confirmed` artifact，否则不生效。普通的本地文件编辑（git 可回退）不需要先跑这个 skill；只有你判断当前任务规模够大、真的想先把边界问清楚时才主动调用。
 
 ## 步骤
 
@@ -47,7 +47,7 @@ confirmed_at: null        # status 改成 confirmed 时补上 ISO8601 时间
 
 【下一步】
 - covers 范围内现在可以动手了
-- 改完之后跑一次 /harness-spec-review <slug> 做收敛判定，否则 Stop hook 会一直提醒
+- 改完之后跑一次 /harness-spec-review <slug> 做收敛判定（没有 hook 会催，得自己记得）
 ```
 
 ## 硬规则

@@ -35,10 +35,10 @@ cd /path/to/repo
 | `/context-observe` | 想知道这段时间干了什么，或定时 | 扫 git log / harness journal / Claude Code 记忆 / 手写日记，append 进 `.context/OBSERVATIONS.md`，不判断去留 |
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
 | `/harness-scope-gate` | 中大型改动开工前 | 逐题问清楚目标/不做什么/验收标准/允许碰哪些路径，写成 `confirmed` 的 scope artifact——`harness-envelope.py` 只认这份 artifact 的 `covers` 字段，见 [docs/scope-and-spec-gate-design.md](docs/scope-and-spec-gate-design.md) |
-| `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`，解开 `harness-stop-contract.py` 的收敛检查 |
+| `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`。**纯 pull**——没有 hook 会替你发现"有 scope 没收敛"，得自己记得跑；不点名就只报告未收敛列表，不代别的 session 判定 |
 | `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |
 
-**BREAKING：`scope_gate` 全局默认开启。** 已经 `/harness-onboard` 过的项目，`install` 更新到这个版本之后，第一次落在 `write_roots`（或没配置 `write_roots` 时，整个仓库）范围内的写操作会被 deny，因为它们从来没有 `.harness/scope/` 下的 `confirmed` artifact。手动跑一次 `/harness-scope-gate` 补上即可；也可以在项目的 `project.yml` 里把 `scope_gate.enabled` 设成 `false` 退出这层限制。
+**`scope_gate` 是纯 opt-in（2026-08-14 撤销了默认全局强制）。** `protected_paths` 留空就完全不限制，不再回退到 `write_roots` 或整个仓库。原因：本地、git 跟踪的编辑本身就可回退，git 已经是安全网，用一个默认全仓库生效的确认闸门去挡每一次写操作，代价（几乎每次改动都要先跑 `/harness-scope-gate` 逐题澄清）远大于收益。实测反例：`cre6630-infra` 显式配置 `protected_paths` 覆盖了 6 个目录，两天内攒了 15 个 `confirmed` scope artifact，其中 11 个从未跑过 `/harness-spec-review` 收敛——多数是"为了解锁写权限"而不是真的需要提前澄清。想在特定路径上加额外摩擦（比如这套 harness 自己的自举文件），在 `project.yml` 里显式写 `scope_gate.protected_paths` 即可，不写就不生效。详见 `docs/scope-and-spec-gate-design.md` 的撤销记录。
 
 ## 六个 hook
 
@@ -49,7 +49,7 @@ cd /path/to/repo
 | `harness-envelope.py` | PreToolUse | 安全区内直接放行，安全区外硬拦；外加 scope gate——写操作命中受保护路径且没有 `confirmed` scope artifact 覆盖，同样硬拦 |
 | `harness-oplog.py` | PostToolUse | 变更留痕。journal 记「说了什么」，oplog 记「动了什么」，带 `# INTENT:` 和当时的 git ref；只读命令跳过 |
 | `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
-| `harness-stop-contract.py` | Stop | 收敛检查最先——有 `confirmed` 但未收敛的 scope 就拦一次；然后是在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒一次（pre 机制失效时的最后一道） |
+| `harness-stop-contract.py` | Stop | 只看这一轮自己的回复：在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒（pre 机制失效时的最后一道）。**不扫项目状态**——曾经的 spec-review guard 会扫全仓库 scope 并拦下别的 session 开的活儿，已删除 |
 
 除 journal 和 oplog 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
 
@@ -63,7 +63,7 @@ cd /path/to/repo
 │   └── 2026-08-08.jsonl # WAL，只增不改
 ├── oplog.jsonl          # 变更留痕：写了什么文件、移了什么、跑了什么 mutating 命令
 ├── scope/
-│   └── <slug>.yml       # /harness-scope-gate 的产出，被 harness-envelope.py 和 harness-stop-contract.py 检查
+│   └── <slug>.yml       # /harness-scope-gate 的产出，被 harness-envelope.py 检查 covers；review 段由 /harness-spec-review 写
 ├── archive/
 │   └── 2026-08-15/
 │       ├── ARCHIVE-MANIFEST.md   # 每条：原路径 / 原因 / 被什么取代 / 时间

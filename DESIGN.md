@@ -25,8 +25,14 @@ AI 让执行变便宜之后，事情变多了，省下来的时间没有落到�
 | session 开头加载项目状态 | `SessionStart` hook | 哪些结论已经过期 | `/harness-compact` skill |
 | session 结尾留下记录 | `Stop` hook | 怎么拆维度并行调查 | `/harness-explore` skill |
 | 越界动作被拦住 | `PreToolUse` hook | 一个新项目该怎么配 | `/harness-onboard` skill |
-| 未声明边界的写操作被挡住 | `PreToolUse` hook（scope gate，见 `docs/scope-and-spec-gate-design.md`） | 边界该怎么问、问到什么程度算清楚 | `/harness-scope-gate` skill |
-| spec 未收敛不许停 | `Stop` hook（spec-review guard，同上文档） | 这份 spec 是不是真的做完了 | `/harness-spec-review` skill |
+| 项目显式配置了 `protected_paths` 时，落在其中且未声明边界的写操作被挡住（纯 opt-in，2026-08-14 撤销了默认全局强制，见 `docs/scope-and-spec-gate-design.md`） | `PreToolUse` hook（scope gate） | 边界该怎么问、问到什么程度算清楚 | `/harness-scope-gate` skill |
+| （没有对应项） | — | 这份 spec 是不是真的做完了 | `/harness-spec-review` skill |
+
+**原则一有一条推论，试出来才补上的**：hook 只能判断这一轮自己的事，不能替 session 去扫全局状态。
+曾经有过一个 Stop hook 的 spec-review guard，每轮扫 `.harness/scope/*.yml`，见到没收敛的 `confirmed` artifact 就拦。
+它拦的往往是另一个 session 正开着的活儿，一拦就把别人的任务列表拽进这个 session 的上下文里，
+而"这个 spec 做完没有"本来就是判断，判断不该挂事件。已删除，只留 pull 触发的 `/harness-spec-review`。
+详见 `docs/scope-and-spec-gate-design.md` 修订记录。
 
 ### 原则二：写入不做判断，判断延迟到压缩
 

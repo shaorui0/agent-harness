@@ -1,17 +1,21 @@
 ---
 name: harness-spec-review
-description: 对一个已经 confirmed 的 scope 做收敛判定——独立无上下文的 reviewer 打分，有限轮次收敛到 CLEARED / NOT_CLEARED / DONE_WITH_CONCERNS，写回 scope artifact 解开 Stop hook 的 spec-review guard。用户说 "/harness-spec-review"、"这个 spec 收个尾"、"看看这个改动做完没有" 时触发，或某个 scope 的所有改动做完之后主动跑一次。
+description: 对一个已经 confirmed 的 scope 做收敛判定——独立无上下文的 reviewer 打分，有限轮次收敛到 CLEARED / NOT_CLEARED / DONE_WITH_CONCERNS，写回 scope artifact。用户说 "/harness-spec-review"、"这个 spec 收个尾"、"看看这个改动做完没有"、"哪些 scope 还没收敛" 时触发，或自己手上这个 scope 的改动做完之后主动跑一次。
 ---
 
 # harness-spec-review
 
-见 `docs/scope-and-spec-gate-design.md`：这是"收敛点判定"的强制层。`harness-stop-contract.py` 会在 Stop 时检查所有 `status: confirmed` 的 scope，`review.status` 没到 `CLEARED`/`DONE_WITH_CONCERNS` 就拦一次——这个 skill 是唯一能把状态推过去的地方。
+见 `docs/scope-and-spec-gate-design.md`：这是"收敛点判定"层。**纯 pull——只有被显式调用时才扫 scope**。没有 hook 会替你发现"有 scope 没收敛"，这是有意的：收敛是判断，判断不挂事件（DESIGN.md 原则一），而且一个 session 去发现另一个 session 手上的活儿，只会把别人的任务列表拽进自己的上下文。
 
 ## 步骤
 
 ### 1. 定位 artifact
 
-`.harness/scope/<slug>.yml`。没传 slug 就扫 `.harness/scope/*.yml`，挑 `status: confirmed` 且 `review.status` 还没收敛的那些，一个一个来。
+传了 slug 就只看 `.harness/scope/<slug>.yml`，**别的 artifact 一律不碰**。
+
+没传 slug：先看这轮对话里自己实际动过的是哪个 scope，只收敛那个。真要盘点时，才扫当前项目根的 `.harness/scope/*.yml` 列出 `status: confirmed` 且 `review.status` 未收敛的条目——**列出来给用户看，不要自动挨个收敛**：别的 scope 可能是另一个 session 正在做的活儿，替它宣布"做完了"是错的。用户点名哪个再动哪个。
+
+扫描范围只在当前项目根（`find_project_root` 找到的那个 `.harness/`），不往上、不跨仓库。
 
 ### 2. 独立 reviewer 打分
 
@@ -25,7 +29,7 @@ description: 对一个已经 confirmed 的 scope 做收敛判定——独立无�
 
 ### 3. 有限轮次收敛
 
-有问题就按 reviewer 的意见改，重派一轮。**最多 3 轮**。**连续 2 轮 reviewer 提的是同样的问题就停**，不再重试，把问题记进 `concerns`——这是防止无限循环撞上 Stop hook guard 的硬性上限，借的是 `autoplan` 的 Pre-Gate Verification 思路（有限重试，仍缺失就带警告继续，不是无限等）。
+有问题就按 reviewer 的意见改，重派一轮。**最多 3 轮**。**连续 2 轮 reviewer 提的是同样的问题就停**，不再重试，把问题记进 `concerns`——借的是 `autoplan` 的 Pre-Gate Verification 思路（有限重试，仍缺失就带警告继续，不是无限等）。
 
 ### 4. 写回 artifact
 
@@ -37,8 +41,8 @@ review:
 ```
 
 - `CLEARED`：acceptance_criteria 全部通过。
-- `DONE_WITH_CONCERNS`：收敛了，但留了明确记录的未解决项——Stop hook 认这个状态，不会一直拦。
-- `NOT_CLEARED`：还没收敛完就被打断，或者卡在同一个问题连续 2 轮——**不建议长期停在这个状态**，Stop hook 会持续提醒直到改成上面两个之一。
+- `DONE_WITH_CONCERNS`：收敛了，但留了明确记录的未解决项。
+- `NOT_CLEARED`：还没收敛完就被打断，或者卡在同一个问题连续 2 轮——**不建议长期停在这个状态**，但没有任何 hook 会催，下次盘点时它会出现在未收敛列表里。
 
 ### 5. 报告
 
@@ -56,4 +60,4 @@ review:
 
 1. reviewer 必须是无上下文的独立 subagent，不能自己评自己，也不能用带这轮对话历史的 fork。
 2. 最多 3 轮，连续 2 轮无新意见就停——不是"直到满意为止"。
-3. 没写成 `CLEARED` 或 `DONE_WITH_CONCERNS`，就还是"未收敛"，Stop hook 会一直拦。
+3. 只收敛用户点名的、或自己这轮真的改过的 scope。别人开的 scope 只报告，不代判。

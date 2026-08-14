@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for harness-stop-contract.py's spec-review guard priority.
+"""Integration tests for harness-stop-contract.py.
 
 No test framework — run directly: python3 hooks/test_stop_contract.py
 
@@ -7,12 +7,15 @@ Runs the hook as a real subprocess (it reads stdin JSON and calls sys.exit,
 same as Claude Code invokes it) with an isolated HOME per test so guard_once
 markers never leak between tests or into the real ~/.harness/run.
 
-Covers the three Stop-hook paths from docs/scope-and-spec-gate-design.md's
-Test Review:
-  - spec not converged -> the spec-review guard blocks, even ahead of a
-    continue-guard-triggering short reply (proves the priority + the
-    len(text) < 40 exemption both hold)
-  - spec already CLEARED -> falls through to the continue-guard as before
+The Stop hook judges only this turn's own reply. It used to also scan
+`.harness/scope/*.yml` and block on any unconverged artifact; that guard was
+removed (see docs/scope-and-spec-gate-design.md 修订记录), so the first test
+below is a regression test pinning the *absence* of that scan — an unconverged
+scope must not interrupt a session that never touched it.
+
+Covered:
+  - confirmed-but-unconverged scope -> no block (no cross-session scanning)
+  - reply that asks permission -> continue guard blocks, scope state irrelevant
   - no scope artifacts at all -> no block, no error
 """
 
@@ -54,19 +57,19 @@ def run_hook(tmp, root, last_message, session="s1"):
     return proc
 
 
-def test_unconverged_spec_blocks_even_on_short_reply():
+def test_unconverged_spec_does_not_block():
+    """Regression: no scope scanning at Stop. A confirmed artifact that never
+    converged belongs to whoever opened it — it must not end this turn."""
     with tempfile.TemporaryDirectory() as tmp:
         root = _project(tmp, scope_files={"my-scope": "status: confirmed\n"})
-        proc = run_hook(tmp, root, "done")  # < 40 chars, must NOT be exempted
-        assert proc.stdout.strip(), "expected a block payload on stdout, got nothing"
-        payload = json.loads(proc.stdout)
-        assert payload.get("decision") == "block", f"expected block, got {payload}"
-        assert "spec-review guard" in payload.get("reason", ""), payload
+        proc = run_hook(tmp, root, "done")
+        assert proc.returncode == 0, f"hook must never fail the turn, rc={proc.returncode} stderr={proc.stderr}"
+        assert proc.stdout.strip() == "", f"expected no block payload, got {proc.stdout!r}"
 
 
-def test_cleared_spec_falls_through_to_continue_guard():
+def test_permission_asking_reply_hits_continue_guard():
     with tempfile.TemporaryDirectory() as tmp:
-        root = _project(tmp, scope_files={"my-scope": "status: confirmed\nreview:\n  status: CLEARED\n"})
+        root = _project(tmp, scope_files={"my-scope": "status: confirmed\n"})
         text = "这部分我先做到这里，要不要我继续往下把剩下的做完，还是先在这里停一下等你确认一下？"
         proc = run_hook(tmp, root, text)
         assert proc.stdout.strip(), "expected a block payload on stdout, got nothing"

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Stop hook — spec-review guard + continue guard + output contract.
+Stop hook — continue guard + output contract.
 
-Spec-review guard (收敛检查，优先于下面两个) 见
-docs/scope-and-spec-gate-design.md 架构评审：spec 收敛是硬性验收规则，不该被
-"这轮是不是在问 permission" 这种风格性判断挡住或延后，所以它跑在最前面，且不受
-下面 `len(text) < 40` 的短文本豁免——一句"Done."一样要过这道检查。
+Both guards judge only THIS turn's own reply. Nothing here scans project state
+across sessions: a spec-review guard used to walk `.harness/scope/*.yml` on
+every Stop and block on any `confirmed` artifact that hadn't converged, which
+meant session A got interrupted by work session B was still holding open, and
+each such block dragged another session's task list into this one's context.
+Convergence is a judgement call, so it belongs in the pull-triggered
+`/harness-spec-review` skill (DESIGN.md 原则一), not in an event hook that
+fires unconditionally. See docs/scope-and-spec-gate-design.md 修订记录.
 
 Continue guard (不在不合适的地方停下来):
   If the turn ends by asking for permission to keep going, and the reply does
@@ -20,8 +24,8 @@ Output contract:
   went silent after the first catch even when the reply kept drifting on
   later turns.
 
-All three behaviours are per-session-guarded via ~/.harness/run/ markers, each
-under its own tag, so they can never double-fire into the same block.
+Both behaviours are per-session-guarded via ~/.harness/run/ markers, each under
+its own tag, so they can never double-fire into the same block.
 """
 
 import re
@@ -30,8 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import (  # noqa: E402
-    emit, guard_once, guard_upto, load_config, message_text, read_event, read_yaml_file,
-    safe_main,
+    emit, guard_once, guard_upto, load_config, message_text, read_event, safe_main,
 )
 
 DECISION_MARK = "【需要决策】"
@@ -39,7 +42,6 @@ DECISION_MARK = "【需要决策】"
 # string — a bare "结论" or even "【结论】" heading with no divider still counts
 # as drift away from the skill's actual template.
 SECTION_PATTERN = re.compile(r"=+\s*【(?:结论|证据|问题|下一步)】\s*=+")
-CONVERGED_STATUSES = ("CLEARED", "DONE_WITH_CONCERNS")
 CONTRACT_NUDGE_LIMIT = 3
 
 ASKS_PERMISSION = [
@@ -78,48 +80,14 @@ def asks_permission(text):
     return any(re.search(p, text, re.IGNORECASE) for p in ASKS_PERMISSION)
 
 
-def pending_spec_reviews(root):
-    """Scope artifacts that are `status: confirmed` but whose `review.status`
-    hasn't converged yet. Returns a list of artifact stems (slugs)."""
-    if root is None:
-        return []
-    scope_dir = Path(root) / ".harness" / "scope"
-    if not scope_dir.is_dir():
-        return []
-    pending = []
-    for path in sorted(scope_dir.glob("*.yml")):
-        data = read_yaml_file(path)
-        if data.get("status") != "confirmed":
-            continue
-        review = data.get("review") or {}
-        if review.get("status") not in CONVERGED_STATUSES:
-            pending.append(path.stem)
-    return pending
-
-
-def spec_review_reason(names):
-    return f"""harness spec-review guard：以下 scope 已经 confirmed，但还没走完收敛判定：{", ".join(names)}。
-
-规则：spec 的验收标准要收敛到 CLEARED 或 DONE_WITH_CONCERNS 才能结束这一轮。
-跑一次 `/harness-spec-review` 把它收敛掉；如果确实卡住了，第一行写 `【需要决策】` 说明卡在哪，然后继续。
-
-这条提醒每个 session 只出现一次。"""
-
-
 def main():
     event = read_event()
     if event.get("hook_event_name") not in (None, "Stop"):
         emit()
 
     cwd = event.get("cwd") or "."
-    cfg, root = load_config(cwd)
+    cfg, _root = load_config(cwd)
     session = event.get("session_id")
-
-    gate = cfg.get("scope_gate") or {}
-    if gate.get("enabled", True):
-        pending = pending_spec_reviews(root)
-        if pending and guard_once(session, "spec_review"):
-            emit({"decision": "block", "reason": spec_review_reason(pending)})
 
     text = message_text(event.get("last_assistant_message")).strip()
     if len(text) < 40:

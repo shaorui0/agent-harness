@@ -1020,6 +1020,28 @@ _STATIC_DIR = _MODULE_DIR / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 
+_cloudcli_cache: dict = {"ts": 0.0, "up": False}
+
+
+def _cloudcli_links() -> dict:
+    """看板里的 CloudCLI 入口：地址来自配置；是否在线探测一下（1s 超时，缓存 10s）；插件是否已装看目录。"""
+    url = str(tracker_config.load().get("cloudcli_url") or "").rstrip("/")
+    if not url:
+        return {}
+    now = time.time()
+    if now - _cloudcli_cache["ts"] > 10:
+        up = False
+        try:
+            import urllib.request  # noqa: PLC0415
+            with urllib.request.urlopen(url + "/", timeout=1) as r:
+                up = 200 <= r.status < 400
+        except Exception:  # noqa: BLE001 — 连不上就是没起来
+            up = False
+        _cloudcli_cache.update(ts=now, up=up)
+    plugin = (Path.home() / ".claude-code-ui" / "plugins" / "harness-tracker" / "manifest.json").exists()
+    return {"cloudcli": {"url": url, "up": _cloudcli_cache["up"], "plugin_installed": plugin}}
+
+
 def _build_board(ws: str | None) -> dict:
     """调 board.build，并补上每个 session 的 summary / summary_pending。board.py 不存在时抛 ImportError。"""
     import board  # noqa: PLC0415 — 延迟导入：board.py 缺失时只影响 /api/board
@@ -1032,6 +1054,7 @@ def _build_board(ws: str | None) -> dict:
             r = summary.get(sid, sess.get("transcript_path"))
             sess["summary"] = r["summary"]
             sess["summary_pending"] = r["pending"]
+    result["links"] = _cloudcli_links()
     return result
 
 

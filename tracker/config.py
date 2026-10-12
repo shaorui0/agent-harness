@@ -16,6 +16,7 @@ DEFAULTS = {
     "roots": ["~/work"],      # 扫 .harness/scope/ 的根目录
     "port": 8787,             # 只绑 127.0.0.1
     "scan_interval_s": 300,   # 后台重扫 scope 的间隔
+    "cloudcli_url": "http://localhost:5173",   # CloudCLI 的访问地址，看板里的入口和「在 CloudCLI 打开」用它
 }
 
 HOME = Path(os.environ.get("HARNESS_TRACKER_HOME", Path.home() / ".harness" / "tracker"))

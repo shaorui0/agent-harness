@@ -103,6 +103,8 @@ details .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:v
 }
 @media (min-width:701px){.navtoggle{display:none!important}}
 .muted{color:var(--muted)}
+a.btn{text-decoration:none;display:inline-block}
+a.btn.cli{display:inline-flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
@@ -111,6 +113,7 @@ details .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:v
   <span class="chips" id="chips"></span>
   <label class="toggle"><input type="checkbox" id="onlyMe"> 只看需要我的</label>
   <span class="sp"></span>
+  <span id="cli"></span>
   <span class="refresh" id="refreshed">加载中…</span>
   <button class="btn" id="refreshBtn" type="button">刷新</button>
 </header>
@@ -220,7 +223,22 @@ details .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:v
     c.appendChild(tag('done ' + (sm.done || 0), 't-ok'));
     c.appendChild(tag('stale ' + (sm.stale || 0), (sm.stale > 0 ? 't-bad' : '')));
     c.appendChild(tag('exited ' + (sm.exited || 0)));
+    renderCli();
     fixHeaderOffset();
+  }
+  /* ---------- CloudCLI 入口 ---------- */
+  function cliInfo() { return (data && data.links && data.links.cloudcli) || null; }
+  function renderCli() {
+    var box = document.getElementById('cli');
+    box.replaceChildren();
+    var ci = cliInfo();
+    if (!ci || !ci.url) return;
+    var a = h('a', { class: 'btn cli', href: ci.url, target: '_blank', rel: 'noopener',
+      title: ci.up ? '在 CloudCLI 里聊天、开 shell、看 git；Tracker tab 里是同一份数据' : 'CloudCLI 没有响应：' + ci.url });
+    a.appendChild(h('i', { class: 'dot ' + (ci.up ? 'd-done' : 'd-exit') }));
+    a.appendChild(document.createTextNode('CloudCLI ↗'));
+    box.appendChild(a);
+    if (ci.up && ci.plugin_installed === false) box.appendChild(h('span', { class: 'note', text: ' 未装 Tracker 插件：bin/harness install' }));
   }
   function renderRefreshed() {
     var el = document.getElementById('refreshed');
@@ -323,6 +341,11 @@ details .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:v
     }
     // ctx_tokens_left 目前取自 transcript 里的预算提示，不是真实上下文余量，不展示（避免误导）
     var holder = h('div', { class: 'fallback', hidden: true });
+    var ci = cliInfo();
+    if (ci && ci.url && s.session_id) {
+      meta.appendChild(h('a', { class: 'btn p', href: ci.url + '/session/' + encodeURIComponent(s.session_id), target: '_blank', rel: 'noopener',
+        title: '在 CloudCLI 里打开这个 session，可以直接接着聊', text: '在 CloudCLI 打开 ↗' }));
+    }
     if (s.resume_cmd) {
       var cb = h('button', { class: 'btn', type: 'button', text: '复制 claude --resume' });
       cb.addEventListener('click', function () { copyCmd(cb, s.resume_cmd, holder); });

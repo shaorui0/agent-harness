@@ -1,8 +1,40 @@
 # agent-harness
 
-工作项目的 context engineering + harness engineering 机制。全局装一次，在任意 workspace 生效，行为由项目目录里的 `.harness/` 决定。
+**运维本地 agent 的工具箱。** 同时开着十几个 Claude Code session 时，它做三件事：让每个 session 有边界、有记录（**管**），让你一眼看到谁在等你、任务做到哪了（**看**），以及在浏览器里接着干（**动手**）。全局装一次，在任意 workspace 生效，行为由项目目录里的 `.harness/` 决定。
 
 设计原理见 [DESIGN.md](DESIGN.md)。一句话版本：**必须发生的事挂在 hook 上，需要判断的事做成主动触发的 skill；写入不做判断，判断延迟到压缩。**
+
+## 全貌：管、看、动手
+
+```mermaid
+flowchart LR
+  subgraph W["管：让 session 有边界、有记录（写）"]
+    H["hooks<br/>注入状态 · 拦越界 · 记 oplog / journal"]
+    S["skills<br/>scope-gate · spec-review · spec-backfill · compact …"]
+  end
+  subgraph R["看：一眼看清所有 session（读，不改任何东西）"]
+    T["tracker 看板 127.0.0.1:8787<br/>workspace → session → 任务 [x] / [ ]"]
+    SH["harness tracker show<br/>终端 / AI 读同一份数据"]
+  end
+  subgraph A["动手：接着干"]
+    C["CloudCLI localhost:5173<br/>聊天 · shell · git · resume<br/>侧边栏有 Tracker tab"]
+  end
+  H -->|oplog / journal| T
+  S -->|scope / openspec 任务清单| T
+  T <-->|"互相跳转：看板『在 CloudCLI 打开』｜Tracker tab"| C
+  T --- SH
+```
+
+| 我想… | 去哪 | 怎么开 |
+|---|---|---|
+| 看所有 session：谁在等我、任务做到哪、还剩哪些 | tracker 看板 | `bin/harness tracker` → <http://127.0.0.1:8787> |
+| 接着某个 session 干：聊天、开 shell、看 git | CloudCLI | <http://localhost:5173>；看板里每个 session 有「在 CloudCLI 打开」按钮 |
+| 在 CloudCLI 里直接看当前 session 的任务和摘要 | Tracker tab | CloudCLI 侧边栏 → Tracker（`bin/harness install` 自动安装插件） |
+| 在终端里看，或者让 AI 看全局 | `tracker show` | `bin/harness tracker show [workspace]` |
+| 某个 session 没走流程，事后补 spec | skill | `/harness-spec-backfill` |
+| 体检：hook / skill / 插件 / scope 格式 | doctor | `bin/harness doctor` |
+
+CloudCLI 是独立的开源项目（[siteboon/claudecodeui](https://github.com/siteboon/claudecodeui)），需要另外装；本仓库只提供它的 **Tracker 插件**（`tracker/cloudcli/`），没装 CloudCLI 时看板照常可用。看板和 CloudCLI 的地址可以在 `~/.harness/config.yml` 的 `tracker:` 段修改（`port`、`cloudcli_url`）。看板的详细说明见 [tracker/README.md](tracker/README.md)。
 
 ## 装
 

@@ -1,6 +1,6 @@
 # harness tracker
 
-`.harness/` 的**只读旁路大盘**。hooks 和 skills 负责写，tracker 只读，不做任何判断。
+`.harness/` 的**只读旁路大盘**，是「运维本地 agent 的工具箱」（见[仓库 README](../README.md)）里**看**的那一块：hooks 和 skills 负责写，tracker 只读，不做任何判断；要接着干，就跳到 **CloudCLI**。
 
 它回答三个问题：
 
@@ -14,8 +14,8 @@
 
 | 入口 | 给谁 | 怎么开 |
 |---|---|---|
-| CloudCLI 里的 **Tracker tab**（主） | 人，远程或本地 | 装了 CloudCLI 插件后在 CloudCLI 里打开（见 `cloudcli/`） |
-| 独立总览页 `http://127.0.0.1:8787` | 人，本机 | `bin/harness tracker` |
+| 独立总览页 `http://127.0.0.1:8787`（跨所有 workspace） | 人，本机 | `bin/harness tracker`。顶栏右上角有 **CloudCLI ↗** 入口（绿点 = CloudCLI 在线），每个 session 详情里有「在 CloudCLI 打开 ↗」 |
+| CloudCLI 里的 **Tracker tab**（只看当前选中的 session） | 人，远程或本地 | CloudCLI 侧边栏 → Tracker；插件由 `bin/harness install` 安装（见 `cloudcli/`） |
 | `harness tracker show` | AI / 终端 | 纯文本 markdown 输出 |
 
 ```bash

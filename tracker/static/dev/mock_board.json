@@ -325,5 +325,12 @@
    ],
    "changes": []
   }
- ]
+ ],
+ "links": {
+  "cloudcli": {
+   "url": "http://localhost:5173",
+   "up": true,
+   "plugin_installed": true
+  }
+ }
 }

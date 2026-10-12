@@ -149,7 +149,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 </div>
 </div>
 <h3>独立总览页：跨所有 workspace，<code>http://127.0.0.1:8787</code></h3>
-<p>CloudCLI 一次只看一个项目。想回答「所有 workspace 里谁在等我、哪些任务还剩几条」时，打开这个页面。它和 Tracker tab 共用同一个后端。</p>
+<p>CloudCLI 一次只看一个项目。想回答「所有 workspace 里谁在等我、哪些任务还剩几条」时，打开这个页面。它和 Tracker tab 共用同一个后端。<b>两边互相跳转</b>：总览页顶栏右上角有 <code>CloudCLI ↗</code> 入口（绿点 = 在线），每个 session 详情里有「在 CloudCLI 打开 ↗」，直达 <code>/session/&lt;id&gt;</code> 接着聊；CloudCLI 里的 Tracker tab 则是同一份数据的当前 session 视图。</p>
 <div class="scroll">
 <div class="mock" role="img" aria-label="主看板示意">
   <div class="mock-top">

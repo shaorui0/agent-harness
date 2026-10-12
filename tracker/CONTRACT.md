@@ -279,3 +279,15 @@ server 启动时会起一个后台线程，按 `tracker.scan_interval_s`（默�
 - 清单显示：`[x] 已完成`（灰）、`[ ] 未完成`、第一个未完成加「← 正在这条」（强调色）。
 - 没有关联 change 的 session 显示「无 spec」标记，右侧只有 Status 和 Summary。
 - 刷新：自动 30 秒一次 + 手动刷新按钮。所有按钮只读，不改仓库。
+
+## v3.1：CloudCLI 入口（2026-10-12）
+
+`/api/board` 顶层新增 `links`：
+
+```json
+"links": {"cloudcli": {"url": "http://localhost:5173", "up": true, "plugin_installed": true}}
+```
+
+- `url` 来自 `~/.harness/config.yml` 的 `tracker.cloudcli_url`（缺省 `http://localhost:5173`）；配成空字符串则 `links` 为 `{}`。
+- `up`：server 探测 `url/` 的结果（1s 超时，缓存 10s）；`plugin_installed`：`~/.claude-code-ui/plugins/harness-tracker/manifest.json` 是否存在。
+- 前端用它在顶栏显示「CloudCLI」入口，并在 session 详情里给出「在 CloudCLI 打开」链接：`<url>/session/<session_id>`（这是 CloudCLI 自己的路由）。

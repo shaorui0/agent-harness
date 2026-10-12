@@ -88,6 +88,7 @@ cd /path/to/repo
 | `harness-oplog.py` | PostToolUse | 变更留痕。journal 记「说了什么」，oplog 记「动了什么」，带 `# INTENT:` 和当时的 git ref；只读命令跳过 |
 | `harness-journal.py` | Stop | 每轮无条件 append 一条 WAL 记录，不做判断 |
 | `harness-stop-contract.py` | Stop | 只看这一轮自己的回复：在 envelope 内停下来征求同意时推回去一次；散文长回复兜底提醒（pre 机制失效时的最后一道）。**不扫项目状态**——曾经的 spec-review guard 会扫全仓库 scope 并拦下别的 session 开的活儿，已删除 |
+| `harness-openspec-aware.py` | SessionStart + UserPromptSubmit | 列出在做的 OpenSpec change；session 写了很多却没关联任何 change 时提醒一次「该不该开」。opt-in、只提醒不拦截、**未注册**，注册方法见 [docs/openspec-aware-hook.md](docs/openspec-aware-hook.md) |
 
 除 journal 和 oplog 外，其余 guard 类 hook 每 session 最多各触发一次，不会循环。所有 hook 在没有配置的目录下静默返回。
 

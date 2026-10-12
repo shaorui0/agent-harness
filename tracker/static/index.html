@@ -857,18 +857,37 @@ ul.chk li.ev{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe U
     if (msg) { e.textContent = msg; e.hidden = false; } else e.hidden = true;
     fixHeaderOffset();
   }
+  /* 页面在浏览器里开着的时候，看板可能已经升级（接口改了）。首次拿到的版本和后来的不一样 = 页面过期，提示刷新。 */
+  var uiVer = null, uiStale = false;
+  function checkUiVersion(v) {
+    if (!v) return;
+    if (uiVer === null) { uiVer = v; return; }
+    if (v !== uiVer) {
+      uiStale = true;
+      var e = document.getElementById('errbar');
+      e.replaceChildren();
+      e.appendChild(document.createTextNode('看板已更新，这个页面是旧版本，按钮可能失效。 '));
+      var a = document.createElement('a');
+      a.href = '#'; a.textContent = '点此刷新'; a.style.fontWeight = '600';
+      a.addEventListener('click', function (ev) { ev.preventDefault(); location.reload(); });
+      e.appendChild(a);
+      e.hidden = false;
+      fixHeaderOffset();
+    }
+  }
   function load() {
     var url = MOCK ? 'dev/mock_board.json' : '/api/board';
     return fetch(url, { cache: 'no-store' }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.text();
     }).then(function (text) {
-      setErr(null);
       lastOk = new Date();
+      if (!uiStale) setErr(null);
       var changed = text !== lastText;
       lastText = text;
       if (changed || !data) {
         data = JSON.parse(text);
+        checkUiVersion(data.ui_version);
         if (selected && !find(selected)) selected = null;
         renderAll();
         allSessions().forEach(function (x) {

@@ -1068,6 +1068,16 @@ def _cloudcli_links() -> dict:
     return {"cloudcli": {"url": url, "up": _cloudcli_cache["up"], "plugin_installed": plugin}}
 
 
+def _ui_version() -> str:
+    """index.html 的版本（mtime+大小）。页面把首次拿到的值记下来，之后发现变了就提示刷新——
+    否则浏览器里开着的旧页面会一直调用已经删掉的接口。"""
+    try:
+        st = _INDEX_HTML.stat()
+        return f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return ""
+
+
 def _build_board(ws: str | None) -> dict:
     """调 board.build，并补上每个 session 的 check / check_pending、recap / recap_pending。board.py 不存在时抛 ImportError。"""
     import board  # noqa: PLC0415 — 延迟导入：board.py 缺失时只影响 /api/board
@@ -1084,6 +1094,7 @@ def _build_board(ws: str | None) -> dict:
             sess["recap"] = rr["recap"]
             sess["recap_pending"] = rr["pending"]
     result["links"] = _cloudcli_links()
+    result["ui_version"] = _ui_version()
     return result
 
 

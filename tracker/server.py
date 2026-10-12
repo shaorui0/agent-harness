@@ -16,6 +16,7 @@ import http.server
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -25,8 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import config as tracker_config
-import goal_tracker
 import specs
+import summary
 
 HOME = Path.home()
 SESSIONS_DIR = HOME / ".claude" / "sessions"
@@ -38,7 +39,6 @@ TMP_BASE = Path(f"/private/tmp/claude-{os.getuid()}")
 STATUS_STALE_SECONDS = 10 * 60     # busy 且 status/transcript 都这么久没动 -> 降级为 unknown（疑似卡死）
 IDE_ACTIVE_SECONDS = 60            # IDE 内嵌 session (status 恒 null) 的 transcript mtime 兜底窗口
 TAIL_BYTES = 256 * 1024            # 首次 tail 时从文件末尾往前读多少字节
-RECAP_COOLDOWN_S = 60              # 同一 session 两次 recap 生成的最小间隔
 
 # ---------------------------------------------------------------------------
 # 模块级缓存：进程存活期间持续维护，实现「增量 tail」和「事件跃迁检测」。
@@ -62,7 +62,7 @@ _git_inflight: set[tuple] = set()
 _git_toplevel: dict[str, str | None] = {}
 _git_lock = threading.Lock()
 _git_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="git")
-_last_sessions: dict[str, dict] = {}     # session_id -> 最近一次 collect 的 session dict（/api/recap 用）
+_last_sessions: dict[str, dict] = {}     # session_id -> 最近一次 collect 的 session dict（/api/summary 用）
 
 
 # =============================================================== utilities
@@ -650,6 +650,50 @@ def _v2_fields(derived: dict, head: dict, session_id, cwd, started_iso, phase, p
     }
 
 
+def _v3_fields(sd: dict) -> None:
+    """v3 看板字段：name 兜底、turns、resume_cmd（started_at 已有）。"""
+    if not sd.get("name"):
+        sd["name"] = sd.get("project_name") or (sd.get("spec") or "")[:30] or None
+    tp = sd.get("transcript_path")
+    sd["turns"] = _count_turns(Path(tp)) if tp else 0
+    cwd, sid = sd.get("cwd"), sd.get("session_id")
+    sd["resume_cmd"] = f"cd {shlex.quote(cwd)} && claude --resume {sid}" if cwd and sid else None
+
+
+_turns_cache: dict[str, tuple[int, int]] = {}   # transcript path -> (已扫字节, 人类回合数)
+
+
+def _count_turns(path: Path) -> int:
+    """人类回合数：从文件头增量扫描（只解析含 "type":"user" 的行），结果按偏移缓存。"""
+    key = str(path)
+    off, count = _turns_cache.get(key, (0, 0))
+    try:
+        size = path.stat().st_size
+        if size < off:
+            off, count = 0, 0
+        if size == off:
+            return count
+        with path.open("rb") as fh:
+            fh.seek(off)
+            while True:
+                line = fh.readline()
+                if not line or not line.endswith(b"\n"):
+                    break
+                off += len(line)
+                if b'"type":"user"' not in line and b'"type": "user"' not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(e, dict) and not e.get("isSidechain") and is_human_prompt(e):
+                    count += 1
+    except OSError:
+        return count
+    _turns_cache[key] = (off, count)
+    return count
+
+
 # ==================================================================== jobs
 
 
@@ -867,7 +911,7 @@ def collect_once() -> dict:
             sid, path, meta = it["sid"], it["path"], it["meta"] or {}
             head = _head_info(path)
             cwd = meta.get("cwd") or head.get("cwd") or ""
-            derived = _process_transcript(sid, cwd, path)["state"]  # events 丢弃：exited 不触发 goal 事件
+            derived = _process_transcript(sid, cwd, path)["state"]  # events 丢弃：events 对 exited 无意义
             started_iso = _ms_to_iso(meta.get("startedAt")) or head.get("first_ts")
             v2 = _v2_fields(derived, head, sid, cwd, started_iso, "exited", it["mtime"], now, path)
             sess_dict = {
@@ -926,9 +970,9 @@ def collect_once() -> dict:
     except Exception:
         jobs = []
 
-    # 过滤 goal_tracker 自己发起的旁路 Haiku session（见 goal_tracker.SIDECAR_CWD），否则会自激循环。
+    # 过滤旁路 Haiku session（固定 cwd，见 config.SIDECAR_CWD）。
     # 旧版本没隔离 cwd，靠首条 prompt 的固定开头兜底识别。
-    sidecar_root = str(goal_tracker.SIDECAR_CWD) if hasattr(goal_tracker, "SIDECAR_CWD") else None
+    sidecar_root = str(tracker_config.SIDECAR_CWD)
     sidecar_ids = {
         sd.get("session_id") for sd in sessions
         if (sidecar_root and (sd.get("cwd") or "").startswith(sidecar_root))
@@ -937,6 +981,12 @@ def collect_once() -> dict:
     if sidecar_ids:
         sessions = [sd for sd in sessions if sd.get("session_id") not in sidecar_ids]
         events = [ev for ev in events if ev.get("session_id") not in sidecar_ids]
+
+    for sd in sessions:
+        try:
+            _v3_fields(sd)
+        except Exception:
+            pass
 
     counts = {p: 0 for p in ("running", "needs_input", "done", "stale", "exited")}
     oldest = 0
@@ -970,76 +1020,58 @@ _STATIC_DIR = _MODULE_DIR / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 
-def _dispatch_events(events: list[dict], sessions_by_id: dict[str, dict]) -> None:
-    """把 collect_once() 本轮检测到的 _events 转发给 goal_tracker。
-
-    goal_tracker 的两个 on_* 函数内部都是提交到线程池异步跑，几毫秒内返回，
-    这里同步调用不会拖慢请求。单个事件处理失败不影响其它事件。
-    """
-    for ev in events:
-        try:
-            session_id = ev.get("session_id")
-            etype = ev.get("type")
-            if not session_id or not etype:
-                continue
-            sess = sessions_by_id.get(session_id) or {}
-
-            if etype == "new_prompt":
-                prompt_text = ev.get("prompt") or sess.get("last_human_prompt") or ""
-                goal_tracker.on_new_human_prompt(session_id, prompt_text)
-
-            elif etype == "status_transition":
-                prev_status = ev.get("prev_status") or ""
-                cur_status = ev.get("cur_status") or ""
-                recent_activity = sess.get("last_action") or ""
-                goal_tracker.on_status_transition(
-                    session_id, prev_status, cur_status, recent_activity,
-                    transcript_path=sess.get("transcript_path"),
-                    cwd=sess.get("cwd"),
-                )
-        except Exception:
-            continue  # 单个事件转发失败不能影响其它事件 / 本次请求
+def _build_board(ws: str | None) -> dict:
+    """调 board.build，并补上每个 session 的 summary / summary_pending。board.py 不存在时抛 ImportError。"""
+    import board  # noqa: PLC0415 — 延迟导入：board.py 缺失时只影响 /api/board
+    data = collect_once()
+    sessions = data.get("sessions", [])
+    result = board.build(sessions, ws)
+    for w in result.get("workspaces", []):
+        for sess in w.get("sessions", []):
+            sid = sess.get("session_id")
+            r = summary.get(sid, sess.get("transcript_path"))
+            sess["summary"] = r["summary"]
+            sess["summary_pending"] = r["pending"]
+    return result
 
 
-def _recap_response(sid: str) -> dict:
-    get_recap = getattr(goal_tracker, "get_recap", None)
-    request_recap = getattr(goal_tracker, "request_recap", None)
-    if not sid:
-        return {"recap": None, "pending": False}
-    recap = None
+def _board_response(ws: str | None) -> tuple[int, dict]:
     try:
-        recap = get_recap(sid) if get_recap else None
-    except Exception:
-        recap = None
+        return 200, _build_board(ws)
+    except ImportError:
+        return 501, {"error": "board module not available"}
+
+
+def _tasks_text(ws_path: str, change: dict) -> str:
+    try:
+        return (Path(ws_path) / change["path"] / "tasks.md").read_text(encoding="utf-8")[:8000]
+    except (OSError, KeyError, TypeError):
+        return ""
+
+
+def _summary_request(sid: str) -> tuple[int, dict]:
     sess = _last_sessions.get(sid)
     if sess is None:
-        try:
-            collect_once()
-        except Exception:
-            pass
+        collect_once()
         sess = _last_sessions.get(sid)
-    tpath = (sess or {}).get("transcript_path")
-    mtime = 0.0
-    if tpath:
+    if sess is None:
+        return 404, {"error": "session not found"}
+    changes: list[dict] = []
+    if sess.get("change_ids") is None:      # sessions 里还没有关联信息：经 board 补
         try:
-            mtime = os.stat(tpath).st_mtime
-        except OSError:
-            pass
-    fresh = bool(recap) and (recap.get("source_mtime") or 0) >= mtime - 0.001
-    status_fn = getattr(goal_tracker, "recap_status", None)
-    st = status_fn(sid) if status_fn else {"inflight": False, "last_start": 0.0}
-    if st["inflight"]:
-        return {"recap": recap, "pending": True}
-    # 刚生成过（或刚失败过）就不再触发：running session 的 transcript 一直在变，
-    # 没有这道冷却会让打开的详情页每 2 秒烧一次 Haiku。
-    cooling = time.time() - (st["last_start"] or 0) < RECAP_COOLDOWN_S
-    if fresh or cooling or not request_recap or not tpath:
-        return {"recap": recap, "pending": False}
-    try:
-        request_recap(sid, tpath, (sess or {}).get("cwd") or "")
-    except Exception:
-        return {"recap": recap, "pending": False}
-    return {"recap": recap, "pending": True}
+            import board  # noqa: PLC0415
+            for w in board.build(list(_last_sessions.values()), None).get("workspaces", []):
+                for bs in w.get("sessions", []):
+                    if bs.get("session_id") == sid:
+                        ids = set(bs.get("change_ids") or [])
+                        changes = [{"id": c["id"], "tasks_text": _tasks_text(w.get("path", ""), c)}
+                                   for c in w.get("changes", []) if c.get("id") in ids]
+        except Exception:
+            changes = []
+    result = summary.request(sid, sess, changes)
+    if result == "cooldown":
+        return 200, {"pending": False}
+    return 202, {"pending": True}
 
 
 class MonitorHandler(http.server.BaseHTTPRequestHandler):
@@ -1088,27 +1120,48 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
 
             if path == "/api/state":
                 data = collect_once()
-                events = data.pop("_events", [])
-                sessions_by_id = {
-                    s.get("session_id"): s
-                    for s in data.get("sessions", [])
-                    if s.get("session_id")
-                }
-                _dispatch_events(events, sessions_by_id)
+                data.pop("_events", None)
                 self._send_json(data)
                 return
 
-            if path == "/api/recap":
-                sid = (parse_qs(urlparse(self.path).query).get("session_id") or [""])[0]
-                self._send_json(_recap_response(sid))
+            if path == "/api/board":
+                ws = (parse_qs(urlparse(self.path).query).get("ws") or [""])[0] or None
+                status, body = _board_response(ws)
+                self._send_json(body, status=status)
                 return
 
-            if path == "/api/goals":
-                self._send_json(goal_tracker.get_state())
+            if path == "/api/summary":
+                sid = (parse_qs(urlparse(self.path).query).get("session_id") or [""])[0]
+                tpath = (_last_sessions.get(sid) or {}).get("transcript_path")
+                self._send_json(summary.get(sid, tpath))
                 return
 
             self._send_json({"error": "not found"}, status=404)
         except Exception as e:  # noqa: BLE001 — 单个请求出错不能拖垮 server
+            try:
+                self._send_json({"error": str(e)}, status=500)
+            except Exception:
+                pass
+
+    def do_POST(self) -> None:  # noqa: N802
+        try:
+            path = self.path.split("?", 1)[0]
+            if path != "/api/summary":
+                self._send_json({"error": "not found"}, status=404)
+                return
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 65536)
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                self._send_json({"error": "bad json"}, status=400)
+                return
+            sid = body.get("session_id") if isinstance(body, dict) else None
+            if not sid or not isinstance(sid, str):
+                self._send_json({"error": "session_id required"}, status=400)
+                return
+            status, resp = _summary_request(sid)
+            self._send_json(resp, status=status)
+        except Exception as e:  # noqa: BLE001
             try:
                 self._send_json({"error": str(e)}, status=500)
             except Exception:

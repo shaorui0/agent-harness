@@ -8,7 +8,8 @@ harness — install / verify / attach the harness mechanism.
   harness context-init [PATH]   attach .context/ (insight journal) to a project
   harness status [PATH]         show the resolved config for a directory
   harness oplog [PATH]          show the change log (what was written / moved / applied)
-  harness tracker [serve|scan]  read-only dashboard over every .harness/ (127.0.0.1:8787)
+  harness tracker [serve|scan|show [WS]]  read-only dashboard over every .harness/ (127.0.0.1:8787);
+                                show prints the board as markdown
   harness uninstall [--dry-run] remove harness hooks and settings entries
 
 Never rewrites anything in settings.json other than the harness entries, and
@@ -30,6 +31,7 @@ SKILLS_SRC = REPO / "skills"
 TEMPLATES = REPO / "templates"
 MANIFEST = REPO / "install" / "hooks-manifest.json"
 TRACKER = REPO / "tracker"
+PLUGIN_SRC = TRACKER / "cloudcli"
 
 HOME = Path(os.path.expanduser("~"))
 CLAUDE = HOME / ".claude"
@@ -37,6 +39,13 @@ HOOKS_DST = CLAUDE / "hooks"
 SKILLS_DST = CLAUDE / "skills"
 SETTINGS = CLAUDE / "settings.json"
 GLOBAL_DIR = HOME / ".harness"
+CLOUDCLI = HOME / ".claude-code-ui"
+PLUGIN_DST = CLOUDCLI / "plugins" / "harness-tracker"
+# CloudCLI serves entry/icon through a realpath-inside-plugin-dir check, so a symlink
+# out to the repo 404s: those two are copied. manifest/server are symlinks (server.js
+# resolves its realpath to find tracker/server.py).
+PLUGIN_LINKS = ("manifest.json", "server.js")
+PLUGIN_COPIES = ("index.js", "icon.svg")
 
 OK, WARN, FAIL = "  ok  ", " warn ", " FAIL "
 _failures = 0
@@ -158,8 +167,93 @@ def cmd_install(args):
         say(OK, "global config already present")
 
     merge_settings(dry)
+    install_plugin(dry)
     print("\nnext: harness doctor\n")
     return 0
+
+
+# ------------------------------------------------------------------ CloudCLI plugin
+
+def install_plugin(dry):
+    if not CLOUDCLI.is_dir():
+        say(WARN, f"CloudCLI not installed ({CLOUDCLI} missing); skipping Tracker plugin")
+        return
+    if PLUGIN_DST.is_symlink():
+        say(FAIL, f"{PLUGIN_DST} is a symlink; CloudCLI skips symlinked plugin dirs. Remove it and re-run")
+        return
+    if not PLUGIN_DST.is_dir():
+        say(OK, f"mkdir {PLUGIN_DST}")
+        if not dry:
+            PLUGIN_DST.mkdir(parents=True, exist_ok=True)
+    for name in PLUGIN_LINKS:
+        link(PLUGIN_SRC / name, PLUGIN_DST / name, dry)
+    for name in PLUGIN_COPIES:
+        src, dst = PLUGIN_SRC / name, PLUGIN_DST / name
+        if dst.is_file() and not dst.is_symlink() and dst.read_bytes() == src.read_bytes():
+            say(OK, f"already copied: {name}")
+            continue
+        say(OK, f"copy {src} -> {dst}")
+        if not dry:
+            if dst.is_symlink():
+                dst.unlink()
+            shutil.copyfile(src, dst)
+
+
+def check_plugin():
+    if not CLOUDCLI.is_dir():
+        say(WARN, "CloudCLI not installed; Tracker plugin check skipped")
+        return
+    if not PLUGIN_DST.is_dir() or PLUGIN_DST.is_symlink():
+        say(WARN, f"Tracker plugin not installed in {PLUGIN_DST} (run: harness install)")
+        return
+    for name in PLUGIN_LINKS:
+        dst = PLUGIN_DST / name
+        want = PLUGIN_SRC / name
+        if not dst.is_symlink():
+            say(FAIL, f"plugin {name} is not a symlink into this repo")
+        elif Path(os.readlink(dst)) != want:
+            say(FAIL, f"plugin {name} points at {os.readlink(dst)}, expected {want}")
+        elif not dst.exists():
+            say(FAIL, f"plugin {name} is a broken link")
+        else:
+            say(OK, f"plugin linked: {name}")
+    for name in PLUGIN_COPIES:
+        dst, src = PLUGIN_DST / name, PLUGIN_SRC / name
+        if not dst.is_file():
+            say(FAIL, f"plugin {name} missing (run: harness install)")
+        elif dst.is_symlink():
+            say(FAIL, f"plugin {name} is a symlink; CloudCLI would 404 it (run: harness install)")
+        elif dst.read_bytes() != src.read_bytes():
+            say(FAIL, f"plugin {name} differs from the repo copy (run: harness install)")
+        else:
+            say(OK, f"plugin copied: {name}")
+    try:
+        m = json.loads((PLUGIN_DST / "manifest.json").read_text(encoding="utf-8"))
+        missing = [k for k in ("name", "displayName", "entry")
+                   if not isinstance(m.get(k), str) or not m.get(k)]
+        if missing:
+            say(FAIL, f"plugin manifest missing fields: {', '.join(missing)}")
+        else:
+            say(OK, f"plugin manifest valid: {m['name']}")
+    except Exception as e:
+        say(FAIL, f"plugin manifest unreadable: {e}")
+
+
+def uninstall_plugin(dry):
+    if not PLUGIN_DST.is_dir() or PLUGIN_DST.is_symlink():
+        return
+    for name in PLUGIN_LINKS + PLUGIN_COPIES:
+        dst = PLUGIN_DST / name
+        if dst.is_symlink() or dst.is_file():
+            say(OK, f"remove {dst}")
+            if not dry:
+                dst.unlink()
+    if not dry:
+        try:
+            PLUGIN_DST.rmdir()
+            say(OK, f"removed {PLUGIN_DST}")
+        except OSError:
+            say(WARN, f"{PLUGIN_DST} not empty; left in place")
 
 
 # ------------------------------------------------------------------ doctor
@@ -228,6 +322,7 @@ def cmd_doctor(args):
     else:
         say(OK, "no harness project in this directory (global defaults apply)")
 
+    check_plugin()
     check_scopes()
 
     print(f"\n{_failures} failure(s)\n")
@@ -259,6 +354,13 @@ def cmd_tracker(args):
     env = dict(os.environ)
     if args.port:
         env["HARNESS_TRACKER_PORT"] = str(args.port)
+    if args.action == "show":
+        show = TRACKER / "show.py"
+        if not show.is_file():
+            print(f"harness tracker show: {show} not found (not implemented in this checkout)", file=sys.stderr)
+            return 1
+        return subprocess.call([sys.executable, str(show)] + ([args.ws] if args.ws else []),
+                               cwd=str(TRACKER), env=env)
     script = "specs.py" if args.action == "scan" else "server.py"
     return subprocess.call([sys.executable, str(TRACKER / script)], cwd=str(TRACKER), env=env)
 
@@ -454,6 +556,7 @@ def cmd_uninstall(args):
                 json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
             )
         say(OK, f"removed {removed} settings entries" + (" [dry-run]" if dry else ""))
+    uninstall_plugin(dry)
     print("\nproject-level .harness/ directories are left untouched.\n")
     return 0
 
@@ -485,7 +588,8 @@ def main():
     p.set_defaults(fn=cmd_oplog)
 
     p = sub.add_parser("tracker", help="read-only dashboard over every .harness/ (scopes + sessions)")
-    p.add_argument("action", nargs="?", choices=["serve", "scan"], default="serve")
+    p.add_argument("action", nargs="?", choices=["serve", "scan", "show"], default="serve")
+    p.add_argument("ws", nargs="?", help="workspace name (show only)")
     p.add_argument("--port", type=int)
     p.set_defaults(fn=cmd_tracker)
 

@@ -192,3 +192,90 @@ server 启动时会起一个后台线程，按 `tracker.scan_interval_s`（默�
 ## 计划中（未实现）
 
 `GET /api/tasks` 返回 `{summary, tasks, unscoped, errors}`，join 规则见 `docs/tracker-design.md` §4。
+
+# v3 看板契约（2026-10-12）—— 所有实现按这一节，字段名不许自行改
+
+目标：左边 workspace → session 树，右边详情（Status / 任务清单 / Summary）。status 来自 session，任务清单来自 OpenSpec，summary 只在人点按钮时生成。
+
+## GET /api/board[?ws=<workspace name>]
+
+```json
+{
+  "generated_at": "ISO",
+  "summary": {"workspaces": 2, "sessions": 5, "running": 1, "needs_input": 1, "done": 2, "stale": 0, "exited": 1},
+  "workspaces": [{
+    "name": "infra",                      // 取 workspace 根目录的 basename
+    "path": "/abs/path",                  // 根目录：往上找 .harness/project.yml，其次 openspec/，其次 git toplevel，最后 cwd
+    "sessions": [ <Session> ],            // 按 needs_input > running > stale > done > exited 排序，同级按 phase_since 新→旧
+    "changes":  [ <Change> ]              // <path>/openspec/changes/*（不含 archive），无则 []
+  }]
+}
+```
+
+`<Session>`（在 /api/state 现有字段基础上，只增不减）：
+
+```json
+{
+  "session_id": "uuid", "name": "db-backup",          // name：~/.claude/sessions/*.json 的 name；缺省取 project_name；再缺省取 spec 前 30 字
+  "phase": "running | needs_input | done | stale | exited", "phase_since": "ISO", "phase_age_s": 180,
+  "last_action": "Write cleanup.sh …", "branch": "feat/x", "cwd": "/abs", "started_at": "ISO",
+  "ctx_tokens_left": 38000, "turns": 50,
+  "diff": {"files_changed": 3, "insertions": 120, "deletions": 8, "commits_since_start": 5, "dirty": true},
+  "spec": "第一条人类 prompt，≤600 字",
+  "transcript_path": "/abs/x.jsonl",
+  "change_ids": ["backup-two-modes"],                 // 关联到的 change，可为 []（= 无 spec）
+  "change_source": {"backup-two-modes": "tracker.yml | touched | mention"},   // 关联依据
+  "resume_cmd": "cd /abs && claude --resume <session_id>",
+  "summary": null,                                    // 或 <Summary>
+  "summary_pending": false
+}
+```
+
+`<Change>`：
+
+```json
+{
+  "id": "backup-two-modes", "title": "proposal.md 第一个 # 标题，缺省取 id",
+  "path": "openspec/changes/backup-two-modes",         // 相对 workspace
+  "progress": {"done": 7, "total": 9},
+  "items": [{"id": "1.1", "text": "精简成两种模式", "done": true, "current": false, "group": "1. 范围"}],
+  "proposal": "proposal.md 去掉标题后的前 800 字",
+  "updated_at": "ISO（change 目录下文件 mtime 最大值）",
+  "session_ids": ["uuid"],
+  "scope": null                                         // 或 {"status": "confirmed", "review": "CLEARED | NOT_CLEARED | DONE_WITH_CONCERNS | null"}：同名 .harness/scope/<id>.yml 存在时
+}
+```
+
+`items` 解析自 `tasks.md`：`- [ ]` / `- [x]`（大小写都认）行；`## ` 标题作为 group；行首形如 `1.1` 的编号作为 id，没有就用顺序号；**第一个未完成的 item 标 `current: true`**，其余为 false。
+
+## session ↔ change 关联（优先级，命中即停；每个 session 可关联多个 change）
+
+1. `<change>/tracker.yml` 里 `sessions: [<sid 或 sid 前 8 位>]` —— 显式绑定（demo 和 backfill 用）
+2. session 的 oplog 记录（`<ws>/.harness/oplog.jsonl` 里 session_id 相同的行，看 `target` / `command`）或 transcript 里的 Edit/Write 路径，落在 `<ws>/openspec/changes/<id>/` 下
+3. change id 出现在 session 的 name 或第一条 prompt 里
+
+## POST /api/summary  `{"session_id": "..."}`  →  202 `{"pending": true}`
+
+后台线程执行：`session_recap.py` 提取骨架 + 该 session 关联 change 的 tasks.md + diff 统计，拼成 prompt，在隔离 cwd（`~/.harness/tracker/state/sidecar`）里跑 `claude -p --model haiku --no-session-persistence`，超时 60s。同一 session 正在生成时再 POST 直接返回 pending，不重复调用；生成完 60s 内不重复触发（返回缓存）。
+
+## GET /api/summary?session_id=...  →  `{"summary": <Summary> | null, "pending": bool, "error": str | null}`
+
+```json
+{
+  "done": ["已完成且有证据的事，每条一句"],
+  "remaining": ["说了要做、还没做的事"],
+  "blocked_on": "在等谁或什么，没有就 null",
+  "diff_note": "一句话：改了哪些地方",
+  "generated_at": "ISO", "source_mtime": "生成时 transcript 的 mtime（ISO）",
+  "stale": false,                      // transcript 的 mtime 比 source_mtime 晚 60 秒以上就是 true（读取时现算，不落盘）
+  "model": "haiku"
+}
+```
+
+缓存：`~/.harness/tracker/state/summaries.jsonl`，每个 session 保留最新一条。**不再有任何自动调用 LLM 的路径**：server 不再因 prompt 或状态跳变触发任何提炼；`/api/goals`、`goal_tracker.py` 删除（`git mv` 到 `tracker/_archive/`）。`/api/state` 保留（兼容），`/api/recap` 删除（被 summary 取代）。
+
+## 展示约定
+
+- 清单显示：`[x] 已完成`（灰）、`[ ] 未完成`、第一个未完成加「← 正在这条」（强调色）。
+- 没有关联 change 的 session 显示「无 spec」标记，右侧只有 Status 和 Summary。
+- 刷新：自动 30 秒一次 + 手动刷新按钮。所有按钮只读，不改仓库。

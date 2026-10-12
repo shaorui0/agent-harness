@@ -2,23 +2,36 @@
 
 `.harness/` 的**只读旁路大盘**。hooks 和 skills 负责写，tracker 只读，不做任何判断。
 
-它回答四个问题：
+它回答三个问题：
 
-1. 我承诺过哪些任务（spec）？
-2. 每个任务做到哪了（status）？
-3. 有没有证据（evidence）？
-4. 哪些工作根本没有 spec（unscoped）？
+1. 每个 workspace 下有哪些 session，各在什么状态（要不要我介入）？
+2. 每个 session 对应的任务做到哪了（任务清单来自 OpenSpec 的 `tasks.md`）？
+3. 哪些 session 根本没有 spec？
 
-它不是实时监控。「session 正在跑什么」只是辅助信息，主视角是 spec。
+它不是实时监控，也不自动判断「做完没有」。
+
+## 入口
+
+| 入口 | 给谁 | 怎么开 |
+|---|---|---|
+| CloudCLI 里的 **Tracker tab**（主） | 人，远程或本地 | 装了 CloudCLI 插件后在 CloudCLI 里打开（见 `cloudcli/`） |
+| 独立总览页 `http://127.0.0.1:8787` | 人，本机 | `bin/harness tracker` |
+| `harness tracker show` | AI / 终端 | 纯文本 markdown 输出 |
 
 ```bash
-bin/harness tracker            # 启动大盘，打开 http://127.0.0.1:8787
-bin/harness tracker scan       # 只重建 scope 快照
-bin/harness doctor             # 包括 scope YAML 校验
+bin/harness tracker                    # 启动总览页，打开 http://127.0.0.1:8787
+bin/harness tracker show [workspace]   # 终端/AI：按 workspace → session → 任务清单 输出 markdown
+bin/harness tracker show --json        # 直接输出 board JSON（同 GET /api/board）
+bin/harness tracker scan               # 只重建 scope 快照
+bin/harness doctor                     # 包括 scope YAML 校验
 ```
 
-**新版设计图（workspace → session → 任务，[x]/[ ] 摘要）：[`static/design.html`](static/design.html)，大盘起来后访问 `/design`。** 它取代下文 §6 的三 tab 方案，对应实现待做。
-设计细节和待拍板项见 [`docs/tracker-design.md`](../docs/tracker-design.md)。思路讲解在 `/deck`。
+`show` 不存在的 workspace 名返回退出码 2 并列出可选项；`--from-file <board.json>` 可以读已保存的 board JSON 离线渲染。
+
+设计图（workspace → session → 任务树）：[`static/design.html`](static/design.html)，大盘起来后访问 `/design`。
+设计细节和决策见 [`docs/tracker-design.md`](../docs/tracker-design.md)。接口字段见 [`CONTRACT.md`](CONTRACT.md)。思路讲解在 `/deck`。
+
+> 实现状态：v3 已实现（board / openspec / summary / show / 新 UI / CloudCLI 插件），见 §7。
 
 ---
 
@@ -57,9 +70,9 @@ flowchart LR
   subgraph TRK["tracker 进程（127.0.0.1:8787，只读）"]
     SP["specs.py<br/>扫 scope + 算 drift<br/>后台每 5 分钟"]
     SE["server.py 采集层<br/>phase / 首条 prompt / diff"]
-    JN["join（计划中）<br/>session → task | unscoped"]
+    JN["board.py<br/>session → change | 无 spec"]
   end
-  UI["浏览器<br/>Tasks / Unscoped / Sessions"]
+  UI["CloudCLI Tracker tab / 总览页 / show"]
 
   HK --> OP
   SK --> SC
@@ -77,10 +90,10 @@ flowchart LR
 
 硬约束：
 
-- **只读**：不写 scope，不改仓库，不调 LLM。唯一的例外是 `/api/recap`，只有你在页面上点开某个 session 时才调用一次 Haiku。
+- **只读**：不写 scope，不改仓库。没有任何自动调 LLM 的路径；唯一的例外是「生成摘要」按钮（`POST /api/summary`），只有你手动点才调用一次 Haiku。
 - **写 scope 的只有 skill**，而且写之前要人确认。
 - **不建中心数据库**：数据都来自各 workspace 的 `.harness/` 和 `~/.claude/`。运行时缓存放在 `~/.harness/tracker/`，删掉不丢任何东西。
-- **仓库里不放数据**：本目录只有代码和 mock，真实快照和 recap 都在 `~/.harness/tracker/`。
+- **仓库里不放数据**：本目录只有代码和 mock，真实快照和摘要缓存都在 `~/.harness/tracker/`。
 
 ## 3. 跑在哪、怎么配
 
@@ -88,9 +101,9 @@ flowchart LR
 |---|---|
 | 启动 | `bin/harness tracker [--port N]`。不常驻，没有 launchd |
 | 地址 | `http://127.0.0.1:8787`，只监听 loopback |
-| 依赖 | python3 stdlib、PyYAML（解析 scope）、本机 `git`。recap 功能需要 PATH 里有 `claude` |
+| 依赖 | python3 stdlib、PyYAML（解析 scope）、本机 `git`。摘要按钮需要 PATH 里有 `claude` |
 | 配置 | `~/.harness/config.yml` 的 `tracker:` 段，缺省值见 `config.py` |
-| 运行时数据 | `~/.harness/tracker/`：`snapshot.js`（scope 快照）、`state/goals.jsonl`（recap 记录）、`state/sidecar/`（旁路 Haiku 的固定 cwd，采集时按它把自己过滤掉） |
+| 运行时数据 | `~/.harness/tracker/`：`snapshot.js`（scope 快照）、`state/summaries.jsonl`（摘要缓存）、`state/sidecar/`（旁路 Haiku 的固定 cwd，采集时按它把自己过滤掉） |
 | 环境变量 | `HARNESS_TRACKER_PORT`、`HARNESS_TRACKER_HOME` |
 
 ```yaml
@@ -103,7 +116,7 @@ tracker:
 
 ## 4. workspace 里存什么、怎么组织
 
-以一个已接入的 workspace（`cre6630-infra`）为例。`.harness/` 由 `harness init --local-ignore` 加进 `.git/info/exclude`，所以不会给公司仓库带来任何 tracked change。
+以一个已接入的 workspace 为例。`.harness/` 可以用 `harness init --local-ignore` 加进 `.git/info/exclude`，这样不会给工作仓库带来任何 tracked change。
 
 ```
 <workspace>/.harness/
@@ -156,6 +169,21 @@ scope_changes: [...]                   # 执行过程中范围改过几次
 - **完成了不删**。review 停在 CLEARED 即可；过期的由 `/harness-compact` 用 `git mv` 移进 `archive/`。
 - `harness doctor` 会校验所有 scope：YAML 解析失败报 FAIL，缺字段或 status 值非法报 WARN。
 
+## 任务从哪来
+
+- **任务清单 = OpenSpec 的 `openspec/changes/<id>/tasks.md`**（不含 `archive/`）。解析 `- [ ]` / `- [x]` 行，`## ` 标题作为分组，第一个未完成项标为「当前」。tracker 不生成、不改任务。
+- 没有 spec 的 session 照常显示，只标「无 spec」。
+
+**session 与 change 如何关联**（按优先级，命中即停，一个 session 可关联多个 change）：
+
+1. `<change>/tracker.yml` 里 `sessions: [<sid 或前 8 位>]`：显式绑定
+2. `touched`：oplog 或 transcript 里这个 session 写过 `openspec/changes/<id>/` 下的文件
+3. `mention`：change id 出现在 session 名或第一条 prompt 里
+
+看板上会显示每条关联用的是哪个依据（`change_source`）。
+
+**Summary 是手动按钮**：右栏的「生成摘要」才会调一次 Haiku（隔离 cwd、60s 超时、不落 session），输出 done / remaining / blocked_on / diff_note，缓存在 `~/.harness/tracker/state/summaries.jsonl`。transcript 比摘要新 60 秒以上就标「已过期」。server 不会因为新 prompt 或状态变化自动调 LLM。
+
 ## 5. 日常怎么工作
 
 ```mermaid
@@ -163,14 +191,14 @@ flowchart TD
   A["开 session（Claude Code）"] --> B{"要改代码或配置？"}
   B -- 否：问答、调研 --> Z["不需要 scope"]
   B -- 是，中大型 --> C["/harness-scope-gate<br/>问清边界，写 confirmed scope"]
-  B -- 是，但先干起来了 --> U["大盘：Unscoped"]
+  B -- 是，但先干起来了 --> U["大盘：标「无 spec」"]
   C --> D["执行<br/>（/harness-openspec、/harness-dispatch）"]
   D --> E["/harness-spec-review<br/>独立 reviewer 收敛判定"]
-  E --> F["大盘：Tasks 绿"]
+  E --> F["大盘：任务清单跟着 tasks.md 走"]
   U --> G["/harness-spec-backfill<br/>从 transcript 倒推 spec + status"]
   G --> H["人确认 → 写 reconstructed scope"]
   H --> E
-  F -. "review 后代码又改了" .-> X["大盘标 ⚠drift，证据可能过期"]
+  F -. "review 后代码又改了" .-> X["大盘提示 drift（仅提示），证据可能过期"]
   X --> E
 ```
 
@@ -188,8 +216,8 @@ flowchart TD
 | 收敛 STATE.md、归档过期内容 | `/harness-compact` | ✅ |
 | **没走流程的 session，事后补一个 scope** | `/harness-spec-backfill` | 🟡 草案，试跑过 1 次 |
 | 回来时看某个 session 做到哪了（给人读） | `/session_recap`（不在本仓库；它的提取器就是本目录的 `session_recap.py`） | ✅ |
-| 跑 AC 的 `verify:` 命令，写 `ac_results` | `/verify` | ⚪ 只有设计 |
-| 把 session 显式绑定到任务 | `/task` | ⚪ 只有设计 |
+| 验证 change 做完没有 | OpenSpec 自带 `/opsx:verify`（不做 `/verify`） | ✅ |
+| 把 session 显式绑定到任务 | 不做 `/task`；用 `<change>/tracker.yml` | ✅ |
 
 ### tracker 读取的 hook 产物
 
@@ -201,49 +229,55 @@ flowchart TD
 
 ## 6. 大盘显示什么
 
-顶部一行汇总：`Tasks 15 · 待验证 x · ⚠drift y · Unscoped n · 待你输入 k`
+顶部一行汇总：`N 个 session 在等你 · running · done · stale · exited`。
 
-| Tab | 一行是什么 | 列 | 回答的问题 | 状态 |
-|---|---|---|---|---|
-| **Tasks**（默认） | 一个 scope | workspace · task · confirmed/reconstructed · review · AC 通过/总数 · drift · 关联 session · 最近活动 | 承诺的事做到哪了？哪些证据已经过期？ | ⚪ 计划中，目前用 `/deck` 第 10 页看快照 |
-| **Unscoped** | 一个 workspace 下的一组无 spec session | 首条 prompt · 改了哪些文件 · diff · phase · 可复制的 `/harness-spec-backfill <sid>` | 哪些工作没有 spec？ | ⚪ 计划中 |
-| **Sessions** | 一个 session | phase（running / needs_input / done / stale / exited）· 时长 · ctx · 最后动作 · recap | 哪个卡住了？哪个在等我？ | ✅ 就是现在的首页 |
+**树形布局，不再分 tab**：
 
-点开一个 task 能看到：每条 AC 的判定和证据、drift 涉及的提交、关联的 session（可以看 recap）、Framing 质量提示（AC 不可执行、cover 太宽、YAML 解析失败）。
+- **左栏**：workspace → session。session 按 needs_input > running > stale > done > exited 排序，同级新的在前；每行带 phase、持续时间、任务进度（如 `7/9`）；没有 spec 的标「无 spec」。
+- **右栏**（选中一个 session）：
+  - **Status**：phase、最后动作、branch、diff、ctx 余量、`resume` 命令
+  - **任务清单**：关联 change 的 `tasks.md`，当前项高亮；已完成项过多时折叠
+  - **Summary**：「生成摘要」按钮的结果（done / remaining / 在等什么），过期会标注
 
-**session 怎么归到 task 上**：按下面的顺序找，命中就停。页面上会显示用的是哪一条依据。
-
-1. `oplog.jsonl` 里，这个 session 写过的 target 落在某个 scope 的 `covers` 里。
-2. 这个 session 读写过 `.harness/scope/<slug>.yml`，或者 prompt 里提到了 slug。
-3. 都没有，就归到 Unscoped。
+前端 30s 轮询，可手动刷新。`harness tracker show` 输出同样的结构。
 
 ## 7. 能不能依赖（2026-10-12）
 
 | 部件 | 状态 | 能不能依赖 |
 |---|---|---|
 | scope 格式、scope-gate、spec-review | 用了两个月 | ✅ |
-| oplog、journal、hooks | 一直在跑；单个 workspace 已有 4 万行 | ✅。oplog 没有轮转 |
-| Sessions 视图（`server.py`） | 在真实数据上验证过：23 个 session，一次采集约 110ms | ✅ 可以用来看 |
-| scope 快照（`specs.py`）、`/deck` | 能跑，扫一次约 8s，有后台刷新 | 🟡 drift 会受宽 cover 干扰 |
-| `harness doctor` 的 scope 校验 | 能跑，目前报出 4 个 YAML 解析失败 | ✅ |
-| 目标自动提炼（`goal_tracker.py` 在 prompt 和状态跳变时调 Haiku） | 还在跑 | 🟡 计划删除（design D2），只保留按需 recap |
-| Tasks / Unscoped 视图、join、`/api/tasks` | 只有设计 | ⚪ |
+| oplog、journal、hooks | 一直在跑；oplog 没有轮转 | ✅ |
+| session 采集（`server.py`） | 在真实数据上验证过 | ✅ |
+| scope 快照（`specs.py`）、`/deck` | 能跑，有后台刷新 | 🟡 drift 会受宽 cover 干扰；drift 只作提示 |
+| `harness doctor` 的 scope 校验 | 能跑 | ✅ |
+| OpenSpec 解析（`openspec.py`）、`/api/board`（`board.py`） | 已实现，有单测；在真实 workspace 上验证过 | ✅ |
+| 手动摘要（`summary.py`、`POST /api/summary`） | 已实现，有单测；真实 haiku 调用验证过（约 20 秒） | ✅ |
+| `harness tracker show`（`show.py`） | 已实现，有单测 | ✅ |
+| 总览页新 UI | 已实现，真实数据下验证过 | ✅ |
+| CloudCLI 插件（`cloudcli/`） | 已安装，渲染和后端代理单独验证过；**还没在运行中的 CloudCLI 里实际加载过** | 🟡 |
+| 自动目标提炼（`goal_tracker.py`、`/api/goals`） | 已删除，移入 `_archive/` | - |
 | `/harness-spec-backfill` | 草案，试跑过 1 次 | ⚪ 产出要人工核对 |
-| `/task`、`/verify`、状态栏 | 只有设计 | ⚪ |
 
 ## 8. 文件
 
 ```
 tracker/
 ├── README.md          # 本文件
-├── CONTRACT.md        # HTTP API 契约（/api/state、/api/goals、/api/recap、/data/snapshot.js、/deck）
+├── CONTRACT.md        # HTTP API 契约（v3：/api/board、/api/summary，兼容 /api/state）
 ├── config.py          # 路径与配置：数据在 ~/.harness/tracker/，配置在 ~/.harness/config.yml
 ├── server.py          # HTTP + session 采集（原 claude_monitor）
-├── goal_tracker.py    # recap 和目标提炼（旁路 Haiku 调用）
+├── openspec.py        # 解析 openspec/changes/*：proposal、tasks.md
+├── board.py           # 组装 /api/board：session 按 workspace 归组、关联 change
+├── summary.py         # 手动摘要：调 Haiku、缓存、过期判断
+├── show.py            # harness tracker show：board → markdown
+├── test_show.py       # show 的单测（python3 -m unittest test_show）
 ├── specs.py           # scope 扫描、drift、校验
-├── session_recap.py   # transcript 骨架提取器（recap 和 backfill 共用）
+├── session_recap.py   # transcript 骨架提取器（摘要和 backfill 共用）
+├── cloudcli/          # CloudCLI 插件（Tracker tab）
+├── _archive/          # 已删除的自动提炼（goal_tracker.py 等），仅留存
 └── static/
-    ├── index.html     # 大盘（目前是 Sessions；加 ?mock=1 用 dev/ 的假数据）
+    ├── index.html     # 总览页（加 ?mock=1 用 dev/ 的假数据）
+    ├── design.html    # v3 设计图
     ├── deck.html      # 思路讲解
     └── dev/mock_*.json
 ```

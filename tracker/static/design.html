@@ -115,7 +115,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
   <div class="box"><b>Spec · Status · Summary</b><small>要做什么 · 现在怎样 · 剩什么</small><span class="src">tasks.md · session · claude -p</span></div>
 </div>
 <div class="grid g3" style="margin-top:12px">
-  <div class="card"><b>Session ↔ Task 是多对多</b><p class="note">一个 session 可以推进好几个 change，一个 change 也可以跨好几个 session。两者靠「session 改过 <code>openspec/changes/&lt;id&gt;/</code> 下的文件」自动关联，你不用手动绑定。</p></div>
+  <div class="card"><b>Session ↔ Task 是多对多</b><p class="note">一个 session 可以推进好几个 change，一个 change 也可以跨好几个 session。两者靠「session 改过 <code>openspec/changes/&lt;id&gt;/</code> 下的文件」自动关联；也可以在 change 目录里放一个 <code>tracker.yml</code>（<code>sessions: [前 8 位 sid]</code>）显式绑定。</p></div>
   <div class="card"><b>spec 用 OpenSpec 的产物</b><p class="note"><code>proposal.md</code> 写为什么做、做什么，<code>tasks.md</code> 是带 <code>- [ ]</code> 的清单。<b>清单本身就是进度</b>，靠解析文件得到，不需要 LLM。</p></div>
   <div class="card"><b>没有 spec 的 session</b><p class="note">直接开干、没建 change 的工作也照样显示，只是没有任务清单，用「生成摘要」来补。想正式登记，就在那个 session 里跑 <code>/harness-spec-backfill</code>。</p></div>
 </div>
@@ -277,7 +277,7 @@ diff_note:  "一句话说明改了哪些地方"</pre>
 
 <!-- ============================================================ -->
 <h2 id="cloudcli">5½ · CloudCLI 集成怎么做</h2>
-<p>用的是 CloudCLI 的插件接口（manifest 里 <code>slot: tab</code>）。插件放在本仓库 <code>tracker/cloudcli/</code>，只有三个文件：</p>
+<p>用的是 CloudCLI 的插件接口（manifest 里 <code>slot: tab</code>）。插件放在本仓库 <code>tracker/cloudcli/</code>，三个功能文件加一个图标：</p>
 <div class="scroll"><table>
 <tr><th>文件</th><th>作用</th></tr>
 <tr><td><code>manifest.json</code></td><td><code>{name: "harness-tracker", displayName: "Tracker", type: "module", slot: "tab", entry: "index.js", server: "server.js"}</code></td></tr>
@@ -285,7 +285,7 @@ diff_note:  "一句话说明改了哪些地方"</pre>
 <tr><td><code>server.js</code></td><td>CloudCLI 用 node 启动它。它只负责拉起或复用 python 的 tracker 进程，然后上报端口；之后的 RPC 由 CloudCLI 原样转发给 tracker</td></tr>
 </table></div>
 <ul>
-  <li><b>安装</b>：<code>bin/harness install</code> 在 <code>~/.claude-code-ui/plugins/harness-tracker/</code> 建一个真实目录，里面的文件软链回本仓库。CloudCLI 扫描插件时会跳过软链目录，所以只能链文件；这样仍然只有一份源码。</li>
+  <li><b>安装</b>：<code>bin/harness install</code> 在 <code>~/.claude-code-ui/plugins/harness-tracker/</code> 建一个真实目录，<code>manifest.json</code> 和 <code>server.js</code> 软链回本仓库；<code>index.js</code> 和 <code>icon.svg</code> 是复制件（CloudCLI 会拒绝加载指向插件目录之外的文件）。<code>harness doctor</code> 会比对复制件，改了 <code>index.js</code> 之后重跑一次 <code>harness install</code> 即可。</li>
   <li><b>不改 CloudCLI 的代码</b>：只用它公开的插件接口，CloudCLI 升级不会受影响。</li>
   <li><b>没装 CloudCLI 也能用</b>：总览页照常工作，插件只是多一个入口。</li>
 </ul>
@@ -348,11 +348,11 @@ harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，ag
 <tr><td>session 采集、status、diff、按需 recap</td><td><span class="tag t-ok">已有</span> 在真实数据上验证过</td></tr>
 <tr><td><code>harness tracker</code> / <code>scan</code>、doctor 校验 scope</td><td><span class="tag t-ok">已有</span></td></tr>
 <tr><td>backfill skill</td><td><span class="tag t-warn">草案</span> 已安装，试跑过 1 次</td></tr>
-<tr><td>CloudCLI 插件（manifest / index.js / server.js）+ install 时软链</td><td><span class="tag t-bad">待做</span></td></tr>
-<tr><td>总览页的新 UI（左树 + 右详情）</td><td><span class="tag t-bad">待做</span> 和插件共用右栏组件</td></tr>
-<tr><td>openspec 扫描 + session ↔ change 关联</td><td><span class="tag t-bad">待做</span> 目前还没有 workspace 用上 openspec，需要先找一个试点</td></tr>
-<tr><td>「生成摘要」按钮（改造现有 recap，输出 done/remaining）</td><td><span class="tag t-bad">待做</span></td></tr>
-<tr><td>删掉自动提炼</td><td><span class="tag t-bad">待做</span></td></tr>
-<tr><td><code>/api/board</code>、<code>harness tracker show</code></td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td>CloudCLI 插件（manifest / index.js / server.js）+ install</td><td><span class="tag t-ok">已有</span> 安装与渲染验证过，还没在运行中的 CloudCLI 里加载过</td></tr>
+<tr><td>总览页的新 UI（左树 + 右详情）</td><td><span class="tag t-ok">已有</span></td></tr>
+<tr><td>openspec 扫描 + session ↔ change 关联</td><td><span class="tag t-ok">已有</span></td></tr>
+<tr><td>「生成摘要」按钮（改造现有 recap，输出 done/remaining）</td><td><span class="tag t-ok">已有</span></td></tr>
+<tr><td>删掉自动提炼</td><td><span class="tag t-ok">已有</span></td></tr>
+<tr><td><code>/api/board</code>、<code>harness tracker show</code></td><td><span class="tag t-ok">已有</span></td></tr>
 </table></div>
 </main>

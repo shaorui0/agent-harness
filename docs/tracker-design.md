@@ -46,24 +46,22 @@ Binding   Session → Task | unscoped（带 source）
 | 3 | 将来由 `/task bind` 显式写入的 task 字段 | ⚪ | 确定 |
 | 4 | 以上都没命中，按 workspace 分组归入 `unscoped` | ✅ | — |
 
-## 5. 视图
+## 5. 视图（v3：树形，不再分 tab）
 
-| Tab | 一行是什么 | 列 | 状态 |
-|---|---|---|---|
-| Tasks（默认） | 一个 scope | workspace · task · confirmed/reconstructed · review · AC 通过/总数 · drift · 关联 session · 最近活动 | ⚪ |
-| Unscoped | 一个 workspace 下的一组无 spec session | 首条 prompt · 改了哪些文件 · diff · phase · `/harness-spec-backfill <sid>` | ⚪ |
-| Sessions | 一个 session | phase · 时长 · ctx · 最后动作 · recap | ✅ |
+- **左栏**：workspace → session。排序 needs_input > running > stale > done > exited，同级新的在前。「无 spec」只是 session 上的一个标记，不是单独的视图。
+- **右栏**（选中 session）：Status（phase、最后动作、diff、resume 命令）/ 任务清单（关联 change 的 `tasks.md`）/ Summary（手动按钮生成）。
+- 入口：CloudCLI 的 Tracker tab（主）、独立总览页 `127.0.0.1:8787`、`harness tracker show`（AI/终端）。
 
 ## 6. 部件去留
 
 | 部件 | 处理 |
 |---|---|
 | session 采集（phase、files、diff、exited 发现） | 保留，作为采集层 |
-| `/api/recap`（点开时按需调 Haiku） | 保留 |
-| 目标自动提炼（每条新 prompt、每次状态跳变都调一次 Haiku） | 计划删除（D2）：spec 本身就是目标，不用让 LLM 去猜。持续成本和「自己喂自己」问题也出在这里 |
+| `/api/recap`（点开时按需调 Haiku） | 由手动摘要（`POST /api/summary`）取代 |
+| 目标自动提炼（每条新 prompt、每次状态跳变都调一次 Haiku） | 已删除（移入 `_archive/`）：spec 本身就是目标，不用让 LLM 去猜 |
 | 前端每 2s 轮询 | 计划改成 30s，加手动刷新按钮 |
 | `specs.py` | ✅ 已完成：后台每 5 分钟重扫，不在请求路径上执行；支持 `{repo, ref, paths}` 写法；提供 `--validate` |
-| `join`、`/api/tasks`、Tasks 和 Unscoped 两个 tab | 待做 |
+| `/api/board`（`board.py`）、OpenSpec 解析（`openspec.py`）、树形 UI | 已实现，取代原 `join`、`/api/tasks`、Tasks / Unscoped tab |
 | Framing 质量提示：AC 不可执行、cover 太宽、YAML 坏了 | 部分完成：YAML 解析失败和缺字段已经进了 `warnings` 和 `doctor` |
 
 ## 7. 补登：把 Unscoped 变成 Task
@@ -96,13 +94,14 @@ agent-harness 负责**写**：hook、skill，以及 `.harness/` 的格式。trac
 
 | # | 决策 | 建议 |
 |---|---|---|
-| D2 | 删掉目标自动提炼 | 删，只保留按需 recap |
-| D3 | 默认打开哪个视图 | Tasks。不过覆盖率很低时 Unscoped 可能更常用 |
-| D4 | 宽 cover 怎么处理 | 只提示，不计入 drift |
-| D5 | 什么时候开始改 Claude Code 的 hook、状态栏，加 `/task`、`/verify` | 先跑一周只读版，看 Unscoped 占多大比例 |
 | D7 | 覆盖率怎么统计 | 分三段：confirmed / reconstructed / 无 spec |
 
 已定：
+
+- D2：删掉自动提炼，加手动「生成摘要」按钮（按需调 Haiku）。
+- D3：不再分 tab，用 workspace → session 树，「无 spec」只是标记。
+- D4：宽 cover 只提示，drift 降为提示，不作为判断依据。
+- D5：不做 `/task`、`/verify`，用 OpenSpec 自带的 `/opsx:verify`；hook 和状态栏先不改。
 
 - D1 / D8：tracker 放在 `agent-harness/tracker/`，只保留这一份实现。
 - D6：backfill skill 放在 `agent-harness/skills/`。
@@ -111,4 +110,4 @@ agent-harness 负责**写**：hook、skill，以及 `.harness/` 的格式。trac
 
 - 不建中心数据库或索引，扫描加缓存够用。
 - tracker 不写任何 scope。
-- 在 D5 拍板之前，不改 hooks 和状态栏。
+- 不改 hooks 和状态栏（D5）。

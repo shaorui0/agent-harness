@@ -1,0 +1,329 @@
+{
+ "generated_at": "2026-10-12T10:00:00Z",
+ "summary": {
+  "workspaces": 2,
+  "sessions": 5,
+  "running": 1,
+  "needs_input": 1,
+  "done": 1,
+  "stale": 1,
+  "exited": 1
+ },
+ "workspaces": [
+  {
+   "name": "infra",
+   "path": "/Users/me/work/infra",
+   "sessions": [
+    {
+     "session_id": "aaaa1111-0000-4000-8000-000000000001",
+     "name": "db-backup",
+     "phase": "needs_input",
+     "phase_since": "2026-10-12T09:57:00Z",
+     "phase_age_s": 180,
+     "last_action": "Write cleanup-test-env.sh，等你确认清理命令",
+     "branch": "feat/backup",
+     "cwd": "/Users/me/work/infra",
+     "started_at": "2026-10-08T01:36:00Z",
+     "ctx_tokens_left": 38000,
+     "turns": 50,
+     "diff": {
+      "files_changed": 12,
+      "insertions": 2100,
+      "deletions": 640,
+      "commits_since_start": 51,
+      "dirty": true
+     },
+     "spec": "把备份收敛成 copy 和 pointer 两种模式，两个核心场景都通过 HTTP API 跑通",
+     "transcript_path": "/Users/me/.claude/projects/x/aaaa1111.jsonl",
+     "change_ids": [
+      "backup-two-modes"
+     ],
+     "change_source": {
+      "backup-two-modes": "tracker.yml"
+     },
+     "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000001",
+     "summary": {
+      "done": [
+       "两个核心场景都通过 API 实测，最终镜像已部署",
+       "代码已推到远端 main"
+      ],
+      "remaining": [
+       "测试环境清理：脚本已给出，没执行",
+       "两个边界修复只有单测，没在线上验"
+      ],
+      "blocked_on": "等你执行清理脚本",
+      "diff_note": "51 个 commit，集中在 backup/，3 个文件未提交",
+      "generated_at": "2026-10-12T09:40:00Z",
+      "source_mtime": "2026-10-12T09:30:00Z",
+      "stale": true,
+      "model": "haiku"
+     },
+     "summary_pending": false
+    },
+    {
+     "session_id": "aaaa1111-0000-4000-8000-000000000002",
+     "name": "autoscaler-cooldown",
+     "phase": "running",
+     "phase_since": "2026-10-12T09:50:00Z",
+     "phase_age_s": 600,
+     "last_action": "Bash: pytest tests/test_cooldown.py",
+     "branch": "main",
+     "cwd": "/Users/me/work/infra",
+     "started_at": "2026-10-12T08:00:00Z",
+     "ctx_tokens_left": 120000,
+     "turns": 14,
+     "diff": {
+      "files_changed": 3,
+      "insertions": 88,
+      "deletions": 12,
+      "commits_since_start": 0,
+      "dirty": true
+     },
+     "spec": "给扩缩容控制器加冷却时间，防止抖动",
+     "transcript_path": "/Users/me/.claude/projects/x/aaaa2222.jsonl",
+     "change_ids": [
+      "autoscaler-cooldown"
+     ],
+     "change_source": {
+      "autoscaler-cooldown": "touched"
+     },
+     "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000002",
+     "summary": null,
+     "summary_pending": false
+    },
+    {
+     "session_id": "aaaa1111-0000-4000-8000-000000000003",
+     "name": "查 P99 延迟",
+     "phase": "done",
+     "phase_since": "2026-10-12T07:00:00Z",
+     "phase_age_s": 10800,
+     "last_action": "给出结论：后端慢，不是网络",
+     "branch": "main",
+     "cwd": "/Users/me/work/infra",
+     "started_at": "2026-10-12T06:00:00Z",
+     "ctx_tokens_left": 200000,
+     "turns": 9,
+     "diff": {
+      "files_changed": 0,
+      "insertions": 0,
+      "deletions": 0,
+      "commits_since_start": 0,
+      "dirty": false
+     },
+     "spec": "排查网关 P99 延迟突刺，给出是后端还是网络",
+     "transcript_path": "/Users/me/.claude/projects/x/aaaa3333.jsonl",
+     "change_ids": [],
+     "change_source": {},
+     "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000003",
+     "summary": null,
+     "summary_pending": false
+    }
+   ],
+   "changes": [
+    {
+     "id": "backup-two-modes",
+     "title": "备份收敛成两种模式",
+     "path": "openspec/changes/backup-two-modes",
+     "progress": {
+      "done": 7,
+      "total": 9
+     },
+     "items": [
+      {
+       "id": "1.1",
+       "text": "精简成 copy / pointer 两种模式",
+       "done": true,
+       "current": false,
+       "group": "1. 范围"
+      },
+      {
+       "id": "1.2",
+       "text": "数据第二份放进备份自己的目录",
+       "done": true,
+       "current": false,
+       "group": "1. 范围"
+      },
+      {
+       "id": "2.1",
+       "text": "跨集群拷贝实测",
+       "done": true,
+       "current": false,
+       "group": "2. 验证"
+      },
+      {
+       "id": "2.2",
+       "text": "灾难恢复实测",
+       "done": true,
+       "current": false,
+       "group": "2. 验证"
+      },
+      {
+       "id": "3.1",
+       "text": "镜像改走 CI 构建",
+       "done": true,
+       "current": false,
+       "group": "3. 交付"
+      },
+      {
+       "id": "3.2",
+       "text": "用户文档 QUICKSTART / RUNBOOK",
+       "done": true,
+       "current": false,
+       "group": "3. 交付"
+      },
+      {
+       "id": "3.3",
+       "text": "保留期改成 72h（只改配置）",
+       "done": true,
+       "current": false,
+       "group": "3. 交付"
+      },
+      {
+       "id": "4.1",
+       "text": "清理测试环境",
+       "done": false,
+       "current": true,
+       "group": "4. 收尾"
+      },
+      {
+       "id": "4.2",
+       "text": "你本人手测一遍",
+       "done": false,
+       "current": false,
+       "group": "4. 收尾"
+      }
+     ],
+     "proposal": "备份只保留 copy 与 pointer 两种模式……",
+     "updated_at": "2026-10-12T09:00:00Z",
+     "session_ids": [
+      "aaaa1111-0000-4000-8000-000000000001"
+     ],
+     "scope": {
+      "status": "reconstructed",
+      "review": null
+     }
+    },
+    {
+     "id": "autoscaler-cooldown",
+     "title": "扩缩容冷却时间",
+     "path": "openspec/changes/autoscaler-cooldown",
+     "progress": {
+      "done": 2,
+      "total": 6
+     },
+     "items": [
+      {
+       "id": "1",
+       "text": "定义冷却参数",
+       "done": true,
+       "current": false,
+       "group": "实现"
+      },
+      {
+       "id": "2",
+       "text": "加冷却判断",
+       "done": true,
+       "current": false,
+       "group": "实现"
+      },
+      {
+       "id": "3",
+       "text": "单测覆盖边界",
+       "done": false,
+       "current": true,
+       "group": "实现"
+      },
+      {
+       "id": "4",
+       "text": "文档",
+       "done": false,
+       "current": false,
+       "group": "实现"
+      },
+      {
+       "id": "5",
+       "text": "预发验证",
+       "done": false,
+       "current": false,
+       "group": "验证"
+      },
+      {
+       "id": "6",
+       "text": "灰度",
+       "done": false,
+       "current": false,
+       "group": "验证"
+      }
+     ],
+     "proposal": "防止扩缩容抖动……",
+     "updated_at": "2026-10-12T09:50:00Z",
+     "session_ids": [
+      "aaaa1111-0000-4000-8000-000000000002"
+     ],
+     "scope": null
+    }
+   ]
+  },
+  {
+   "name": "webapp",
+   "path": "/Users/me/work/webapp",
+   "sessions": [
+    {
+     "session_id": "bbbb2222-0000-4000-8000-000000000001",
+     "name": "refactor-auth",
+     "phase": "stale",
+     "phase_since": "2026-10-12T08:00:00Z",
+     "phase_age_s": 7200,
+     "last_action": "Bash: npm test（运行中 2 小时无输出）",
+     "branch": "refactor/auth",
+     "cwd": "/Users/me/work/webapp",
+     "started_at": "2026-10-12T07:00:00Z",
+     "ctx_tokens_left": 60000,
+     "turns": 22,
+     "diff": {
+      "files_changed": 9,
+      "insertions": 400,
+      "deletions": 300,
+      "commits_since_start": 2,
+      "dirty": true
+     },
+     "spec": "重构鉴权模块",
+     "transcript_path": "/Users/me/.claude/projects/y/bbbb1111.jsonl",
+     "change_ids": [],
+     "change_source": {},
+     "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000001",
+     "summary": null,
+     "summary_pending": true
+    },
+    {
+     "session_id": "bbbb2222-0000-4000-8000-000000000002",
+     "name": "改 README",
+     "phase": "exited",
+     "phase_since": "2026-10-12T05:00:00Z",
+     "phase_age_s": 18000,
+     "last_action": "Edit README.md",
+     "branch": "main",
+     "cwd": "/Users/me/work/webapp",
+     "started_at": "2026-10-12T04:30:00Z",
+     "ctx_tokens_left": 0,
+     "turns": 6,
+     "diff": {
+      "files_changed": 1,
+      "insertions": 30,
+      "deletions": 5,
+      "commits_since_start": 1,
+      "dirty": false
+     },
+     "spec": "重写 README 的快速上手部分",
+     "transcript_path": "/Users/me/.claude/projects/y/bbbb2222.jsonl",
+     "change_ids": [],
+     "change_source": {},
+     "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000002",
+     "summary": null,
+     "summary_pending": false
+    }
+   ],
+   "changes": []
+  }
+ ]
+}

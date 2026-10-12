@@ -1,0 +1,12 @@
+{
+  "name": "harness-tracker",
+  "displayName": "Tracker",
+  "version": "0.1.0",
+  "description": "Per-session status, OpenSpec task checklist and on-demand summary from the harness tracker.",
+  "author": "agent-harness",
+  "icon": "icon.svg",
+  "type": "module",
+  "slot": "tab",
+  "entry": "index.js",
+  "server": "server.js"
+}

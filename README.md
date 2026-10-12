@@ -80,14 +80,15 @@ cd /path/to/repo
 
 ## 大盘：tracker
 
-`.harness/` 的只读旁路。跨所有 workspace 回答：承诺了哪些任务、每个做到哪了、证据在不在、review 之后代码有没有又被改过（drift）、哪些 session 的工作根本没有 spec。
+`.harness/` 的只读旁路：按 workspace → session 展示状态，任务清单来自 OpenSpec 的 `tasks.md`，没有 spec 的 session 标「无 spec」。入口：CloudCLI 里的 Tracker tab（主）、独立总览页 `127.0.0.1:8787`、`harness tracker show`（给 AI/终端）。
 
 ```bash
 bin/harness tracker          # http://127.0.0.1:8787，只绑 loopback
+bin/harness tracker show     # 终端/AI：markdown 输出，可加 workspace 名或 --json
 bin/harness tracker scan     # 只重建 scope 快照
 ```
 
-不写任何 scope，不调 LLM（唯一例外：点开某个 session 时按需生成一次 recap）。运行时数据放在 `~/.harness/tracker/`，仓库里只有代码。
+不写任何 scope，没有自动调 LLM 的路径（只有手动点「生成摘要」才调一次）。运行时数据放在 `~/.harness/tracker/`，仓库里只有代码。
 用法、workspace 怎么组织、配合哪些 skill、哪些部件能依赖，见 [tracker/README.md](tracker/README.md)；设计见 [docs/tracker-design.md](docs/tracker-design.md)。
 
 ## 定时收敛

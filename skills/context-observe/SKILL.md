@@ -13,7 +13,7 @@ description: 扫描一个项目自上次观测以来发生的事（git log / .ha
 当前目录（或其上级）必须有 `.context/`。没有就先跑：
 
 ```bash
-/Users/rshao/work/agent-harness/bin/harness context-init .
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness context-init .
 ```
 
 ## 步骤

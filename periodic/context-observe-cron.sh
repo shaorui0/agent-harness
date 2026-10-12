@@ -6,7 +6,7 @@
 #   context-observe-cron.sh --projects-file ~/.harness/context-projects.txt
 #
 # crontab 示例（每天 21:00 JST，一天一次）：
-#   0 21 * * * /Users/rshao/work/agent-harness/periodic/context-observe-cron.sh \
+#   0 21 * * * /Users/rshao/work/context-infrastructure/projects/agent-harness/periodic/context-observe-cron.sh \
 #               --projects-file "$HOME/.harness/context-projects.txt" >> /tmp/context-observe.log 2>&1
 #
 # 设计约束：

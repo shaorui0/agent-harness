@@ -6,7 +6,7 @@
 #   compact-cron.sh --projects-file ~/.harness/projects.txt
 #
 # crontab 示例（每天 03:00 JST）：
-#   0 3 * * * /Users/rshao/work/agent-harness/periodic/compact-cron.sh \
+#   0 3 * * * /Users/rshao/work/context-infrastructure/projects/agent-harness/periodic/compact-cron.sh \
 #               --projects-file "$HOME/.harness/projects.txt" >> /tmp/harness-compact.log 2>&1
 #
 # 设计约束：

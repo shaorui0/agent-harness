@@ -22,7 +22,7 @@ description: 给一个已有的项目仓库装上 harness 机制：生成 .harne
 ### 2. 装目录
 
 ```bash
-/Users/rshao/work/agent-harness/bin/harness init <repo-path>
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness init <repo-path>
 ```
 
 生成 `.harness/{project.yml,STATE.md,journal/,archive/}`。

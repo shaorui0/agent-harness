@@ -7,8 +7,8 @@
 ## 装
 
 ```bash
-/Users/rshao/work/agent-harness/bin/harness install
-/Users/rshao/work/agent-harness/bin/harness doctor
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness install
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness doctor
 ```
 
 `install` 做四件事，全部幂等：把 `hooks/*.py` 软链进 `~/.claude/hooks/`，把 `skills/*` 软链进 `~/.claude/skills/`，
@@ -21,7 +21,7 @@
 
 ```bash
 cd /path/to/repo
-/Users/rshao/work/agent-harness/bin/harness init
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness init
 ```
 
 然后在那个仓库里跑 `/harness-onboard`，它会摸底、填 `project.yml` 的自主边界、从现有文档蒸馏第一版 `STATE.md`。
@@ -96,7 +96,7 @@ bin/harness tracker scan     # 只重建 scope 快照
 ```bash
 echo /path/to/repo >> ~/.harness/projects.txt
 # crontab
-0 3 * * * /Users/rshao/work/agent-harness/periodic/compact-cron.sh \
+0 3 * * * /Users/rshao/work/context-infrastructure/projects/agent-harness/periodic/compact-cron.sh \
             --projects-file "$HOME/.harness/projects.txt" >> /tmp/harness-compact.log 2>&1
 ```
 
@@ -109,7 +109,7 @@ echo /path/to/repo >> ~/.harness/projects.txt
 
 ```bash
 cd /path/to/repo
-/Users/rshao/work/agent-harness/bin/harness context-init .
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness context-init .
 ```
 
 生成 `.context/{project.yml,OBSERVATIONS.md,journal/}`。跑 `/context-observe` 做一次观测，
@@ -117,7 +117,7 @@ cd /path/to/repo
 
 ```bash
 echo /path/to/repo >> ~/.harness/context-projects.txt
-0 21 * * * /Users/rshao/work/agent-harness/periodic/context-observe-cron.sh \
+0 21 * * * /Users/rshao/work/context-infrastructure/projects/agent-harness/periodic/context-observe-cron.sh \
             --projects-file "$HOME/.harness/context-projects.txt" >> /tmp/context-observe.log 2>&1
 ```
 
@@ -131,7 +131,7 @@ Claude Code 的自动记忆目录（按 cwd 算 slug，见 `~/.claude/projects/<
 ## 拆
 
 ```bash
-/Users/rshao/work/agent-harness/bin/harness uninstall
+/Users/rshao/work/context-infrastructure/projects/agent-harness/bin/harness uninstall
 ```
 
 移除软链和 settings.json 里的 harness 条目，项目目录里的 `.harness/` 保持不动。

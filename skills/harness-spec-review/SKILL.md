@@ -44,6 +44,8 @@ review:
 - `DONE_WITH_CONCERNS`：收敛了，但留了明确记录的未解决项。
 - `NOT_CLEARED`：还没收敛完就被打断，或者卡在同一个问题连续 2 轮——**不建议长期停在这个状态**，但没有任何 hook 会催，下次盘点时它会出现在未收敛列表里。
 
+**可选：同步 pipeline artifact。** 如果这个项目根下存在同名 `.harness/pipeline/<slug>.yml`（大需求执行五段式，见 `docs/big-req-pipeline-design.md`），顺手把这里的 `review.status` 同步进它的 `stages.offline_gate.per_child.<slug>`。找不到就静默跳过，不报错——这是纯 additive 的一步，不改上面的判断逻辑本身，也不是这个 skill 的必需步骤。
+
 ### 5. 报告
 
 ```

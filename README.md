@@ -26,7 +26,7 @@ cd /path/to/repo
 
 然后在那个仓库里跑 `/harness-onboard`，它会摸底、填 `project.yml` 的自主边界、从现有文档蒸馏第一版 `STATE.md`。
 
-## 七个主动 skill + 一个被动引用的 skill
+## 主动 skill + 一个被动引用的 skill
 
 | skill | 什么时候用 | 干什么 |
 |---|---|---|
@@ -34,6 +34,7 @@ cd /path/to/repo
 | `/harness-compact` | 状态乱了，或定时 | 收敛 STATE.md，归档过期内容，git 留痕 |
 | `/context-observe` | 想知道这段时间干了什么，或定时 | 扫 git log / harness journal / Claude Code 记忆 / 手写日记，append 进 `.context/OBSERVATIONS.md`，不判断去留 |
 | `/harness-explore` | 需要调查 | 拆正交维度并行派 subagent，结构化合并 |
+| `/harness-dispatch` | 手上有一份【下一步】清单要执行 | 推 DoD 并确认一次，然后按依赖分波派 3-8 个子 agent 执行，主 agent 只调度与收口；DoD 逐条 verify 通过才停，子 agent 的线上写命令走 escrow 一波一批 |
 | `/harness-scope-gate` | 中大型改动开工前 | 逐题问清楚目标/不做什么/验收标准/允许碰哪些路径，写成 `confirmed` 的 scope artifact——`harness-envelope.py` 只认这份 artifact 的 `covers` 字段，见 [docs/scope-and-spec-gate-design.md](docs/scope-and-spec-gate-design.md) |
 | `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`。**纯 pull**——没有 hook 会替你发现"有 scope 没收敛"，得自己记得跑；不点名就只报告未收敛列表，不代别的 session 判定 |
 | `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |

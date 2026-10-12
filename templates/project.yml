@@ -79,3 +79,16 @@ output:
   contract: structured     # structured | free
   nudge_once: true         # 散文长回复时提醒一次
   auto_continue: true      # 在 envelope 内停下来征求同意时推回去一次
+
+# ── 派发编排（/harness-dispatch）─────────────────────────────
+# 任何 hook 都不读这一段，纯粹是 skill 的默认值覆盖点。
+# 这里的上限和 explore 的上限约束的不是同一件事：explore 限的是意见扇出
+# （多个 agent 对同一问题各给一份看法，合并成本落回人脑），
+# dispatch 限的是产物扇出（各自产出互不重叠的文件与事实，合并是拼接）。
+dispatch:
+  wave_width: 5              # 每波默认派几个
+  max_agents_per_wave: 8     # 每波硬上限
+  max_agents_total: 24       # 一次运行累计硬上限
+  max_waves: 4               # 波数硬上限
+  executor: general-purpose  # 需要写权限的子 agent 类型
+  model: sonnet              # 执行档模型

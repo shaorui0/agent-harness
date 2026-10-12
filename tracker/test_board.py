@@ -32,6 +32,14 @@ def write(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
+class ItemIdTest(unittest.TestCase):
+    def test_letter_suffixed_ids_are_kept(self):
+        import openspec
+        items = openspec.parse_tasks("## 3b. x\n- [x] 3b.1 first\n- [ ] 3b.2 second\n- [ ] 4.1 third\n")
+        ids = [i["id"] for i in (items[1] if isinstance(items, tuple) else items)] if not isinstance(items, dict) else [i["id"] for i in items["items"]]
+        self.assertEqual(ids, ["3b.1", "3b.2", "4.1"])
+
+
 class DedupeTest(unittest.TestCase):
     def test_same_session_id_keeps_most_active(self):
         a = {"session_id": "s1", "phase": "done", "phase_since": "2026-01-01T10:00:00Z"}

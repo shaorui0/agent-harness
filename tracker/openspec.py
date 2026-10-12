@@ -19,7 +19,7 @@ MAX_MTIME_FILES = 2000
 
 _TASK_RE = re.compile(r"^(\s*)[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
 _GROUP_RE = re.compile(r"^##\s+(.*\S)\s*$")
-_NUM_RE = re.compile(r"^(\d+(?:\.\d+)*)[.)]?\s+(.*)$")
+_NUM_RE = re.compile(r"^(\d+[A-Za-z]?(?:\.\d+)*)[.)]?\s+(.*)$")   # 1.1 / 3b.2 都算编号
 _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 
@@ -66,7 +66,7 @@ def parse_tasks(text: str) -> list[dict]:
         if not m:
             continue
         raw = m.group(3).strip()
-        raw = re.sub(r"^(\*\*|__)(\d+(?:\.\d+)*[.)]?)\1\s*", r"\2 ", raw)  # **1.1** text
+        raw = re.sub(r"^(\*\*|__)(\d+[A-Za-z]?(?:\.\d+)*[.)]?)\1\s*", r"\2 ", raw)  # **1.1** text
         n = _NUM_RE.match(raw)
         if n:
             iid, text_ = n.group(1), n.group(2)

@@ -1,6 +1,6 @@
 """手动核对：只在 POST /api/check 时生成，没有任何自动触发路径。
 
-流程：session_recap.py 提取骨架 + 关联 change 的任务清单（id | [x]/[ ] | text）+ diff 统计 -> 拼 prompt ->
+流程：actions.py 生成整个 session 的动作索引（失败回退 session_recap.py 骨架）+ 关联 change 的任务清单（id | [x]/[ ] | text）+ diff 统计 -> 拼 prompt ->
 隔离 cwd 里跑 `claude -p --model <tracker.check_model，缺省 sonnet> --no-session-persistence --setting-sources project`
 -> 解析 JSON -> normalize（丢弃非法 id / verdict）-> 追加写 checks.jsonl。
 读取时现算 stale（transcript mtime 比生成时的 source_mtime 晚 60 秒以上）。纯 stdlib。
@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import actions
 import config as tracker_config
 
 DEFAULT_MODEL = "sonnet"   # 判断「勾选是否有证据」需要比 haiku 更强的模型；可用 tracker.check_model 改
@@ -38,6 +39,7 @@ TAIL_CHARS = 12000
 COOLDOWN_S = 60          # 生成完（含失败）后这么久内不重复触发
 STALE_AFTER_S = 60       # transcript 比 source_mtime 晚这么久 -> stale
 TASKS_MAX_CHARS = 6000
+INDEX_MAX_CHARS = 60000
 
 VERDICTS = ("ok", "unsupported", "unticked_done")
 EVIDENCE_MAX = 80
@@ -67,7 +69,8 @@ PROMPT_TEMPLATE = """你在做旁路「勾选核对」，不参与任务执行�
 ## diff 统计
 {diff}
 
-## session 骨架
+## session 动作索引
+下面是整个 session 的动作索引（改变状态的动作 + 每回合结论），不是全文；`unsupported` 只能在索引里找不到对应动作时才给，找到了动作就给 ok 并把动作写进 evidence。
 {skeleton}
 """
 
@@ -100,7 +103,8 @@ def _iso_ts(s) -> float | None:
 
 # ------------------------------------------------------------------ 外部调用点（测试里 monkeypatch）
 
-def _run_extract(transcript_path: str, cwd: str | None) -> str:
+def _run_recap(transcript_path: str, cwd: str | None) -> str:
+    """回退路径：session_recap 骨架（头尾截断）。"""
     proc = subprocess.run(
         [sys.executable, str(_RECAP_SCRIPT), str(Path(transcript_path).resolve())],
         capture_output=True, text=True, timeout=EXTRACT_TIMEOUT,
@@ -108,7 +112,17 @@ def _run_extract(transcript_path: str, cwd: str | None) -> str:
     )
     if proc.returncode != 0 or not (proc.stdout or "").strip():
         raise RuntimeError("session_recap 提取失败")
-    return proc.stdout
+    out = proc.stdout
+    if len(out) > HEAD_CHARS + TAIL_CHARS:
+        out = out[:HEAD_CHARS] + "\n...（中间省略）...\n" + out[-TAIL_CHARS:]
+    return out
+
+
+def _run_extract(transcript_path: str, cwd: str | None) -> str:
+    try:
+        return actions.build_index(transcript_path, INDEX_MAX_CHARS)
+    except Exception:  # noqa: BLE001 — 索引构建失败就退回骨架
+        return _run_recap(transcript_path, cwd)
 
 
 def _run_claude(prompt: str) -> str:
@@ -199,8 +213,6 @@ def _tasks_block(changes: list[dict]) -> str:
 
 
 def build_prompt(skeleton: str, session: dict, changes: list[dict]) -> str:
-    if len(skeleton) > HEAD_CHARS + TAIL_CHARS:
-        skeleton = skeleton[:HEAD_CHARS] + "\n...（中间省略）...\n" + skeleton[-TAIL_CHARS:]
     d = session.get("diff") or {}
     diff = (f"files_changed={d.get('files_changed', 0)} insertions={d.get('insertions', 0)} "
             f"deletions={d.get('deletions', 0)} commits_since_start={d.get('commits_since_start', 0)} "

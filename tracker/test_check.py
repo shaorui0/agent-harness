@@ -156,10 +156,43 @@ class CheckTest(unittest.TestCase):
                        "2.1 | [x] | update docs", "files_changed=3"):
             self.assertIn(needle, p)
 
-    def test_prompt_skeleton_truncated(self):
-        p = check.build_prompt("H" * 1500 + "M" * 50000 + "T" * 12000, {}, CHANGES)
-        self.assertIn("中间省略", p)
-        self.assertNotIn("M" * 100, p)
+    def test_prompt_explains_index(self):
+        p = check.build_prompt("IDX", {}, CHANGES)
+        self.assertIn("动作索引", p)
+        self.assertIn("找到了动作就给 ok", p)
+
+    def _write_transcript(self):
+        import json
+        rows = [{"type": "user", "timestamp": "2026-01-02T03:04:05Z", "cwd": "/w",
+                 "message": {"role": "user", "content": "do it"}},
+                {"type": "assistant", "message": {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "u1", "name": "Write", "input": {"file_path": "/w/a.py"}},
+                    {"type": "text", "text": "done"}]}}]
+        tp = Path(self.tmp.name) / "real.jsonl"
+        tp.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return str(tp)
+
+    def test_run_extract_uses_index(self):
+        check._run_extract = self._orig[2]
+        out = check._run_extract(self._write_transcript(), None)
+        self.assertIn("T1 ", out)
+        self.assertIn("Write a.py", out)
+        self.assertIn("→ done", out)
+
+    def test_run_extract_falls_back_to_recap(self):
+        check._run_extract = self._orig[2]
+        with mock.patch.object(check.actions, "build_index", side_effect=ValueError("boom")), \
+                mock.patch.object(check, "_run_recap", return_value="SKEL") as m:
+            self.assertEqual(check._run_extract(self._write_transcript(), None), "SKEL")
+        m.assert_called_once()
+
+    def test_recap_fallback_truncated(self):
+        big = "H" * 1500 + "M" * 50000 + "T" * 12000
+        with mock.patch.object(subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 0, stdout=big, stderr="")):
+            out = check._run_recap("x.jsonl", None)
+        self.assertIn("中间省略", out)
+        self.assertNotIn("M" * 100, out)
 
     def test_run_claude_command(self):
         seen = {}

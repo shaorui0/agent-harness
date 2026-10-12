@@ -65,27 +65,45 @@ class TreeTest(unittest.TestCase):
         self.assertIn("- [x] 1 甲", out)
         self.assertIn("  - [ ] 2.1 乙子", out)
 
-    def test_claude_tasks_tree(self):
-        sm = {"tasks": [
-            {"title": "拷贝", "done": True, "subtasks": [{"text": "备份", "done": True}, {"text": "恢复", "done": True}]},
-            {"title": "清理", "done": False, "subtasks": [{"text": "删 ns", "done": True}, {"text": "删盘", "done": False}]}],
-            "blocked_on": "审批", "diff_note": "3 文件", "done": ["x"], "remaining": ["y"]}
-        out = show.render(board([sess(summary=sm)]))
-        self.assertIn("Claude 梳理：", out)
-        self.assertIn("- [x] 拷贝 (2/2)\n", out)
-        self.assertNotIn("备份", out)
-        self.assertIn("- [ ] 清理 (1/2)\n  - [x] 删 ns\n  - [ ] 删盘", out)
-        self.assertIn("在等：审批", out)
-        self.assertNotIn("- [x] x", out)  # 有 tasks 就不输出平铺
+    def test_check_marks(self):
+        chk = {"changes": [{"id": "demo-change", "items": [
+            {"id": "1.1", "verdict": "ok", "evidence": "pytest 通过"},
+            {"id": "2.1", "verdict": "unsupported", "evidence": ""},
+            {"id": "2.2", "verdict": "unticked_done", "evidence": "部署脚本已执行"}]}],
+            "off_spec": ["修了 CI 缓存", "改了 README"], "blocked_on": "等审批",
+            "generated_at": "2026-10-12T10:05:00", "stale": True}
+        out = show.render(board([sess(change_ids=["demo-change"], check=chk)], [CH]))
+        self.assertIn("- [x] 1. 准备 (2/2)\n", out)
+        self.assertNotIn("✓", out)
+        self.assertNotIn("pytest 通过", out)  # ok 不输出
+        self.assertIn("  - [x] 2.1 改配置  ⚠ 无证据", out)
+        self.assertIn("  - [ ] 2.2 上线  ← 正在这条  ⏳ 似乎已做完\n      证据：部署脚本已执行", out)
+        self.assertIn("在等：等审批", out)
+        self.assertIn("规格外：修了 CI 缓存；改了 README", out)
+        self.assertIn("核对：10:05，已过期", out)
 
-    def test_fallback_flat_and_stale(self):
-        out = show.render(board([sess(summary={"done": ["a"], "remaining": ["b"], "stale": True})]))
-        self.assertIn("Claude 梳理（已过期）：", out)
-        self.assertIn("- [x] a\n- [ ] b", out)
+    def test_flagged_done_group_expands(self):
+        chk = {"changes": [{"id": "demo-change", "items": [{"id": "1.2", "verdict": "unsupported", "evidence": ""}]}]}
+        out = show.render(board([sess(change_ids=["demo-change"], check=chk)], [CH]))
+        self.assertIn("- [x] 1. 准备 (2/2)\n  - [x] 1.1 写脚本\n  - [x] 1.2 跑脚本  ⚠ 无证据", out)
+
+    def test_exec_lines(self):
+        ch = {**CH, "session_ids": ["s1", "s2"]}
+        s1 = sess(change_ids=["demo-change"], phase="needs_input", phase_age_s=120)
+        s2 = sess(session_id="s2", name="other", change_ids=["demo-change"], phase_age_s=7200)
+        out = show.render(board([s1, s2], [ch]))
+        self.assertIn("执行：demo 在等你输入 2m\n执行：other 运行中 2h", out)
+
+    def test_no_check_no_marks(self):
+        out = show.render(board([sess(change_ids=["demo-change"])], [CH]))
+        self.assertNotIn("在等：", out)
+        self.assertNotIn("规格外", out)
+        self.assertIn("执行：demo 运行中", out)
 
     def test_no_process_fields(self):
-        out = show.render(board([sess(last_action="正在跑某事", summary={"done": [], "remaining": [], "now": "改文件"})]))
-        self.assertNotIn("最后动作", out)
+        out = show.render(board([sess(last_action="正在跑某事", summary={"tasks": [], "blocked_on": "旧", "now": "改文件"})]))
+        self.assertNotIn("Claude 梳理", out)
+        self.assertNotIn("旧", out)
         self.assertNotIn("现在：", out)
         self.assertNotIn("正在跑某事", out)
         self.assertIn("无 spec", out)

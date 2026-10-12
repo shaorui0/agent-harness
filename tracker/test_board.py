@@ -139,8 +139,8 @@ class BoardTest(unittest.TestCase):
         self.assertEqual([s["phase"] for s in w["sessions"]], ["needs_input", "running", "done", "done"])
         self.assertEqual(res["summary"]["sessions"], 4)
         self.assertEqual(res["summary"]["needs_input"], 1)
-        self.assertIsNone(w["sessions"][0]["summary"])
-        self.assertFalse(w["sessions"][0]["summary_pending"])
+        self.assertIsNone(w["sessions"][0]["check"])
+        self.assertFalse(w["sessions"][0]["check_pending"])
         self.assertEqual(board.build(self.sessions(), ws="nope")["workspaces"], [])
         self.assertEqual(len(board.build(self.sessions(), ws="demo-ws")["workspaces"]), 1)
 

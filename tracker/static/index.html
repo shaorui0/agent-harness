@@ -138,6 +138,20 @@ ul.chk li.tkli{margin-top:3px}
 ul.chk li.tkli:first-child{margin-top:0}
 details.proc{margin-top:0;margin-bottom:12px}
 details.proc>summary{color:var(--muted)}
+.exr{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;font-size:13px;margin:2px 0}
+.exr .nm{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.exr .note{white-space:nowrap}
+.mk{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;font-size:11.5px;line-height:17px;padding:0 6px;border-radius:999px;margin-left:6px;white-space:nowrap;font-weight:400;display:inline-block}
+.mk.ok{color:var(--muted);padding:0 2px}
+.mk.un{background:var(--warn-soft);color:var(--warn)}
+.mk.ud{background:var(--accent-soft);color:var(--accent)}
+.mk.cn{margin-left:4px}
+ul.chk li.ev{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;font-size:12px;color:var(--muted);opacity:.9;white-space:normal;padding-top:0}
+.offs{margin-top:8px}
+.offs ul{margin:2px 0 0;padding-left:20px;list-style:disc;font-size:13px}
+.offs li{overflow-wrap:anywhere}
+.nospec{border-left:3px solid var(--warn)}
+.blk-f{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-top:8px}
 </style>
 </head>
 <body>
@@ -171,10 +185,10 @@ details.proc>summary{color:var(--muted)}
   var collapsed = {};
   var onlyMe = false;
   var openSpec = {}, openProp = {};
-  var sumLocal = {};      // sid -> summary (fresh, from our own polling)
-  var sumState = {};      // sid -> {pending, error}
-  var pollers = {};       // sid -> {timer, t0}
-  var mockJobs = {};
+  var chkLocal = {};      // sid -> check (fresh, from our own polling)
+  var chkState = {};      // sid -> {error}
+  var chkPollers = {};    // sid -> {timer, t0}
+  var mockChecks = {};
   var recapLocal = {};    // sid -> recap
   var recapState = {};    // sid -> {error}
   var recapPollers = {};  // sid -> {timer, t0}
@@ -243,14 +257,12 @@ details.proc>summary{color:var(--muted)}
     chs.forEach(function (c) { d += (c.progress && c.progress.done) || 0; t += (c.progress && c.progress.total) || 0; });
     return { d: d, t: t };
   }
-  function summaryOf(s) {
-    var loc = sumLocal[s.session_id];
-    if (loc && (!s.summary || (loc.generated_at || '') >= (s.summary.generated_at || ''))) return loc;
-    return s.summary;
+  function checkOf(s) {
+    var loc = chkLocal[s.session_id];
+    if (loc && (!s.check || (loc.generated_at || '') >= (s.check.generated_at || ''))) return loc;
+    return s.check;
   }
-  function isPending(s) {
-    return !!pollers[s.session_id];
-  }
+  function isCheckPending(s) { return !!chkPollers[s.session_id]; }
   function recapOf(s) {
     var loc = recapLocal[s.session_id];
     if (loc && (!s.recap || (loc.generated_at || '') >= (s.recap.generated_at || ''))) return loc;
@@ -322,11 +334,6 @@ details.proc>summary{color:var(--muted)}
       sess.forEach(function (s) {
         var chs = changesOf(w, s), right;
         if (chs.length) { var p = progOf(chs); right = h('span', { class: 'pg', text: p.d + '/' + p.t }); }
-        else if ((summaryOf(s) || {}).tasks && summaryOf(s).tasks.length) {
-          var tk = summaryOf(s).tasks, nd = tk.filter(function (x) { return x.done; }).length;
-          right = h('span', { class: 'pg', text: nd + '/' + tk.length + ' 任务' });
-        }
-        else if (s.phase === 'stale') right = h('span', { class: 'pg bad', text: '疑似卡住' });
         else right = h('span', { class: 'pg', text: '无 spec' });
         t.appendChild(h('button', { class: 'sess' + (s.session_id === selected ? ' sel' : ''), type: 'button', title: PHASE_LBL[s.phase] || s.phase,
           onclick: function () { select(s.session_id); } }, [dot(s.phase), h('span', { class: 'n', text: s.name || s.session_id.slice(0, 8) }), right]));
@@ -345,13 +352,13 @@ details.proc>summary{color:var(--muted)}
     items.forEach(function (it, i) { if (firstNow < 0 && it.current && !it.done) firstNow = i; });
     items.forEach(function (it, i) {
       var lvl = it.level || 0;
-      var row = { text: (it.id ? it.id + ' ' : '') + it.text, done: !!it.done, now: i === firstNow };
+      var row = { id: it.id, text: (it.id ? it.id + ' ' : '') + it.text, done: !!it.done, now: i === firstNow };
       if (it.group) {
         var t = byGroup[it.group];
         if (!t) { t = { title: it.group, own: true, subs: [] }; byGroup[it.group] = t; tasks.push(t); }
         row.indent = lvl + 1; t.subs.push(row); cur = null;
       } else if (lvl === 0 || !cur) {
-        cur = { title: row.text, own: row.done, now: row.now, subs: [] }; tasks.push(cur);
+        cur = { id: it.id, title: row.text, own: row.done, now: row.now, subs: [] }; tasks.push(cur);
       } else { row.indent = lvl; cur.subs.push(row); }
     });
     tasks.forEach(function (t) {
@@ -360,38 +367,58 @@ details.proc>summary{color:var(--muted)}
     });
     return tasks;
   }
-  function claudeTasks(list) {
-    return (list || []).map(function (t) {
-      var subs = (t.subtasks || []).map(function (st) { return { text: st.text, done: !!st.done, indent: 1 }; });
-      var n = 0; subs.forEach(function (r) { if (r.done) n++; });
-      return { title: t.title, done: !!t.done, now: false, subs: subs, n: n, total: subs.length };
-    });
+  var VERDICT = {
+    ok: { cls: 'ok', text: '✓' },
+    unsupported: { cls: 'un', text: '⚠ 无证据' },
+    unticked_done: { cls: 'ud', text: '⏳ 似乎已做完' }
+  };
+  function mark(v) {
+    var d = v && VERDICT[v.verdict];
+    if (!d) return null;
+    return h('span', { class: 'mk ' + d.cls, text: d.text, title: v.verdict === 'ok' && v.evidence ? v.evidence : null });
   }
-  function taskTree(tasks, keyPrefix) {
+  function evLine(v, pad) {
+    if (!v || v.verdict === 'ok' || !v.evidence) return null;
+    return h('li', { class: 'ev', style: 'padding-left:' + pad + 'em', text: v.evidence });
+  }
+  function taskTree(tasks, keyPrefix, vm) {
+    vm = vm || {};
     var ul = h('ul', { class: 'chk' });
     tasks.forEach(function (t) {
       var key = keyPrefix + '/' + t.title;
-      var open = (key in openGrp) ? openGrp[key] : !(t.done && t.subs.length);
+      var nUn = 0, nUd = 0;
+      var own = t.id != null ? vm[t.id] : null;
+      if (own) { if (own.verdict === 'unsupported') nUn++; else if (own.verdict === 'unticked_done') nUd++; }
+      t.subs.forEach(function (r) {
+        var v = r.id != null ? vm[r.id] : null;
+        if (v && v.verdict === 'unsupported') nUn++; else if (v && v.verdict === 'unticked_done') nUd++;
+      });
+      var flagged = nUn + nUd > 0;
+      var open = (key in openGrp) ? openGrp[key] : (flagged || !(t.done && t.subs.length));
       var lbl = (t.done ? '[x] ' : '[ ] ') + t.title + (t.now ? '  ← 正在这条' : '');
       var kids = [h('span', { class: 'car', text: t.subs.length ? (open ? '▾' : '▸') : '' }), h('span', { class: 'tt', text: lbl })];
       if (t.total) kids.push(h('span', { class: 'cnt', text: t.n + '/' + t.total }));
+      if (own) kids.push(mark(own));
+      if (t.subs.length) {
+        if (nUn) kids.push(h('span', { class: 'mk un cn', text: '⚠ ' + nUn }));
+        if (nUd) kids.push(h('span', { class: 'mk ud cn', text: '⏳ ' + nUd }));
+      }
       var cls = 'tk' + (t.done ? ' x' : (t.now ? ' now' : ''));
       var row;
       if (t.subs.length) {
         row = h('button', { class: cls, type: 'button', 'aria-expanded': String(open), onclick: function () { openGrp[key] = !open; renderDetail(); } }, kids);
       } else row = h('div', { class: cls }, kids);
       ul.appendChild(h('li', { class: 'tkli' }, row));
+      var ev0 = evLine(own, 1.6); if (ev0) ul.appendChild(ev0);
       if (open) t.subs.forEach(function (r) {
-        ul.appendChild(h('li', { class: r.done ? 'x' : (r.now ? 'now' : ''), style: 'padding-left:' + (r.indent * 1.7) + 'em' },
-          (r.done ? '[x] ' : '[ ] ') + r.text + (r.now ? '  ← 正在这条' : '')));
+        var v = r.id != null ? vm[r.id] : null;
+        var li = h('li', { class: r.done ? 'x' : (r.now ? 'now' : ''), style: 'padding-left:' + (r.indent * 1.7) + 'em' },
+          (r.done ? '[x] ' : '[ ] ') + r.text + (r.now ? '  ← 正在这条' : ''));
+        var mk = mark(v); if (mk) li.appendChild(mk);
+        ul.appendChild(li);
+        var ev = evLine(v, r.indent * 1.7 + 2.4); if (ev) ul.appendChild(ev);
       });
     });
-    return ul;
-  }
-  function plainList(done, rem) {
-    var ul = h('ul', { class: 'chk' });
-    (done || []).forEach(function (t) { ul.appendChild(h('li', { class: 'x' }, '[x] ' + t)); });
-    (rem || []).forEach(function (t) { ul.appendChild(h('li', {}, '[ ] ' + t)); });
     return ul;
   }
 
@@ -462,22 +489,45 @@ details.proc>summary{color:var(--muted)}
     frag.appendChild(meta);
     frag.appendChild(holder);
 
-    // OpenSpec tasks (tree)
+    // OpenSpec tasks (tree) + free execution status + on-demand consistency check
+    var sid0 = s.session_id, ck = checkOf(s), cpend = isCheckPending(s), cst = chkState[sid0] || {};
+    if (!chs.length) {
+      frag.appendChild(h('section', { class: 'blk nospec' }, [h('div', { class: 'blk-h' }, [h('b', { text: '没有 spec' })]),
+        h('div', { class: 'note', text: '没有 spec：在这个 session 里用 /opsx:new 建一个 change，或用 /harness-spec-backfill 补登。' })]));
+    }
     chs.forEach(function (c) {
       var p = c.progress || { done: 0, total: 0 };
       var pct = p.total ? Math.round(p.done * 100 / p.total) : 0;
+      var cc = ck && (ck.changes || []).filter(function (x) { return x.id === c.id; })[0];
+      var vm = {};
+      if (cc) (cc.items || []).forEach(function (it) { vm[it.id] = it; });
       var blk = h('section', { class: 'blk' });
       var head = h('div', { class: 'blk-h' }, [h('b', { text: '任务进度 · ' + c.title }), tag('openspec', 't-acc')]);
       if (c.scope) {
         var rv = c.scope.review ? ' · ' + c.scope.review : '';
         head.appendChild(tag('scope ' + c.scope.status + rv, c.scope.status === 'confirmed' ? 't-ok' : 't-warn'));
       }
-      head.appendChild(h('span', { class: 'sp' }));
       head.appendChild(h('span', { class: 'bar' }, h('i', { style: 'width:' + pct + '%' })));
       head.appendChild(h('span', { class: 'mono', text: p.done + '/' + p.total }));
-      head.appendChild(h('span', { class: 'note', text: '更新 ' + fmtTime(c.updated_at) }));
+      head.appendChild(h('span', { class: 'sp' }));
+      head.appendChild(h('span', { class: 'note', text: '点按钮才调用 · ' + ((ck && ck.model) || 'sonnet') }));
+      var btn = h('button', { class: 'btn p', type: 'button', disabled: cpend, text: cpend ? '核对中…' : (ck ? '重新核对' : '核对勾选') });
+      btn.addEventListener('click', function () { startCheck(sid0); });
+      head.appendChild(btn);
       blk.appendChild(head);
-      blk.appendChild(taskTree(groupTasks(c.items || []), ws.name + '/' + c.id));
+      // execution status (free): one row per linked session
+      (c.session_ids || []).forEach(function (id) {
+        var f2 = find(id);
+        if (!f2) return;
+        blk.appendChild(h('div', { class: 'exr' }, [dot(f2.s.phase), h('span', { class: 'nm', text: f2.s.name || id.slice(0, 8) }),
+          h('span', { text: PHASE_TXT[f2.s.phase] || f2.s.phase }), h('span', { class: 'note', text: human(f2.s.phase_age_s) })]));
+      });
+      if (ck && ck.blocked_on) blk.appendChild(h('div', { class: 'callout', text: '⏸ 在等：' + ck.blocked_on }));
+      blk.appendChild(taskTree(groupTasks(c.items || []), ws.name + '/' + c.id, vm));
+      if (ck && ck.off_spec && ck.off_spec.length) {
+        blk.appendChild(h('div', { class: 'offs' }, [h('div', { class: 'grp', text: '规格外的工作（考虑补进 tasks.md）' }),
+          h('ul', {}, ck.off_spec.map(function (x) { return h('li', { text: x }); }))]));
+      }
       if (c.proposal) {
         var pk = ws.name + '/' + c.id;
         var pd = h('details', {}, [h('summary', { text: 'proposal' }), h('div', { class: 'body', text: c.proposal })]);
@@ -485,11 +535,15 @@ details.proc>summary{color:var(--muted)}
         pd.addEventListener('toggle', function () { openProp[pk] = pd.open; });
         blk.appendChild(pd);
       }
+      if (ck) {
+        var ft = h('div', { class: 'blk-f' }, [h('span', { class: 'note', text: '核对于 ' + fmtTime(ck.generated_at) + (ck.model ? ' · ' + ck.model : '') })]);
+        if (ck.stale) ft.appendChild(tag('已过期', 't-warn'));
+        blk.appendChild(ft);
+      }
+      if (cst.error) blk.appendChild(h('div', { class: 'err', text: cst.error }));
       frag.appendChild(blk);
     });
 
-    // Claude-organised tasks
-    frag.appendChild(renderSummary(s, chs.length > 0));
     // Session Summary（session_recap 流程）
     frag.appendChild(renderRecap(s));
     // Process details (collapsed)
@@ -527,30 +581,6 @@ details.proc>summary{color:var(--muted)}
     if (openProc[sid]) det.open = true;
     det.addEventListener('toggle', function () { openProc[sid] = det.open; });
     return det;
-  }
-
-  function renderSummary(s, hasChange) {
-    var sid = s.session_id, sm = summaryOf(s), pend = isPending(s), stt = sumState[sid] || {};
-    var blk = h('section', { class: 'blk' });
-    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Claude 梳理的任务' }), tag('点按钮才调用')]);
-    if (sm && sm.stale) head.appendChild(tag('已过期', 't-warn'));
-    head.appendChild(h('span', { class: 'sp' }));
-    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend, text: pend ? '生成中…' : (sm ? '重新梳理' : '↻ 让 claude 梳理任务') });
-    btn.addEventListener('click', function () { startSummary(sid); });
-    head.appendChild(btn);
-    blk.appendChild(head);
-    if (sm) {
-      if (Array.isArray(sm.tasks)) blk.appendChild(taskTree(claudeTasks(sm.tasks), 'sum/' + sid));
-      else blk.appendChild(plainList(sm.done, sm.remaining));
-      if (sm.blocked_on) blk.appendChild(h('div', { class: 'callout', text: '⏸ 在等：' + sm.blocked_on }));
-      if (sm.diff_note) blk.appendChild(h('div', { class: 'note', style: 'margin-top:6px', text: sm.diff_note }));
-      blk.appendChild(h('div', { class: 'note', text: '生成于 ' + fmtTime(sm.generated_at) + (sm.model ? ' · ' + sm.model : '') }));
-    } else if (!pend) {
-      blk.appendChild(h('div', { class: 'note', text: hasChange ? '点按钮：让 claude 按 session 的实际动作核对任务完成情况'
-        : '点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些' }));
-    }
-    if (stt.error) blk.appendChild(h('div', { class: 'err', text: stt.error }));
-    return blk;
   }
 
   /* ---------- session recap ---------- */
@@ -745,7 +775,7 @@ details.proc>summary{color:var(--muted)}
     window.scrollTo(0, 0);
     if (selected && window.matchMedia('(max-width:700px)').matches) document.getElementById('aside').classList.remove('open');
     var f = selected && find(selected);
-    if (f && f.s.summary_pending && !pollers[selected]) startPolling(selected);
+    if (f && f.s.check_pending && !chkPollers[selected]) startCheckPolling(selected);
     if (f && f.s.recap_pending && !recapPollers[selected]) startRecapPolling(selected);
   }
   function hashSid() {
@@ -753,65 +783,69 @@ details.proc>summary{color:var(--muted)}
     return m ? decodeURIComponent(m[1]) : null;
   }
 
-  /* ---------- summary generation ---------- */
+  /* ---------- api / check generation ---------- */
   function api(method, url, body) {
-    if (MOCK && /\/api\/summary/.test(url)) return mockSummary(method, url, body);
+    if (MOCK && /\/api\/check/.test(url)) return mockCheck(method, url, body);
     if (MOCK && /\/api\/recap/.test(url)) return mockRecap(method, url, body);
     var opt = { method: method, headers: {} };
     if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
     return fetch(url, opt).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok && r.status !== 202) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
   }
-  function mockSummary(method, url, body) {
+  function mockCheck(method, url, body) {
     return new Promise(function (res) {
       if (method === 'POST') {
-        var sid = body.session_id;
-        if (!mockJobs[sid]) mockJobs[sid] = { t: Date.now() };
+        if (!mockChecks[body.session_id]) mockChecks[body.session_id] = { t: Date.now() };
         return res({ pending: true });
       }
       var q = decodeURIComponent((url.split('session_id=')[1] || '').split('&')[0]);
-      var job = mockJobs[q];
+      var job = mockChecks[q];
       if (job && Date.now() - job.t >= 2000) {
-        delete mockJobs[q];
-        return res({ pending: false, error: null, summary: {
-          tasks: [
-            { title: '示例任务 A：核心流程', done: true, subtasks: [{ text: '实现主流程', done: true }, { text: '本地验证通过', done: true }] },
-            { title: '示例任务 B：收尾', done: false, subtasks: [{ text: '更新文档', done: true }, { text: '边界情况补测', done: false }, { text: '灰度上线', done: false }] },
-            { title: '示例任务 C：待评估', done: false, subtasks: [] }],
-          now: '示例：正在补测边界情况',
-          done: ['示例：核心流程已跑通并验证', '示例：文档已更新'],
-          remaining: ['示例：边界情况补测', '示例：线上灰度'],
-          blocked_on: null,
-          diff_note: '示例：改动集中在一个目录，少量文件未提交',
-          generated_at: new Date().toISOString(), source_mtime: new Date().toISOString(), stale: false, model: 'mock' } });
+        delete mockChecks[q];
+        var f = find(q), now = new Date().toISOString(), badDone = false, udDone = false;
+        var chg = (f ? changesOf(f.ws, f.s) : []).map(function (c) {
+          var its = (c.items || []).filter(function (x) { return x.id; });
+          var lastDone = -1; its.forEach(function (x, i) { if (x.done) lastDone = i; });
+          var out = [];
+          its.forEach(function (x, i) {
+            if (x.done) {
+              if (i === lastDone && !badDone) { badDone = true; out.push({ id: x.id, verdict: 'unsupported', evidence: '' }); }
+              else out.push({ id: x.id, verdict: 'ok', evidence: '示例：记录里有对应的命令和结果' });
+            } else if (!udDone) { udDone = true; out.push({ id: x.id, verdict: 'unticked_done', evidence: '示例：相关命令已执行并成功' }); }
+          });
+          return { id: c.id, items: out };
+        });
+        return res({ pending: false, error: null, check: { changes: chg, off_spec: ['示例：顺手调整了一处日志格式', '示例：清理了一个无用的临时文件'],
+          blocked_on: null, generated_at: now, source_mtime: now, stale: false, model: 'sonnet' } });
       }
-      res({ pending: !!job, error: null, summary: null });
+      res({ pending: !!job, error: null, check: null });
     });
   }
-  function startSummary(sid) {
-    sumState[sid] = {};
-    api('POST', '/api/summary', { session_id: sid }).then(function () { startPolling(sid); }, function (e) {
-      delete pollers[sid]; sumState[sid] = { error: '生成失败：' + e.message }; renderDetail();
+  function startCheck(sid) {
+    chkState[sid] = {};
+    chkPollers[sid] = { timer: null, t0: Date.now(), starting: true };
+    api('POST', '/api/check', { session_id: sid }).then(function () { startCheckPolling(sid); }, function (e) {
+      clearTimeout(chkPollers[sid] && chkPollers[sid].timer);
+      delete chkPollers[sid]; chkState[sid] = { error: '核对失败：' + e.message }; renderDetail();
     });
-    pollers[sid] = { timer: null, t0: Date.now(), starting: true };
     renderDetail();
   }
-  function startPolling(sid) {
-    var p = pollers[sid] || (pollers[sid] = { t0: Date.now() });
+  function startCheckPolling(sid) {
+    var p = chkPollers[sid] || (chkPollers[sid] = { t0: Date.now() });
     if (p.timer) return;
     p.t0 = Date.now();
     function stop(err) {
-      clearTimeout(p.timer); delete pollers[sid];
-      sumState[sid] = err ? { error: err } : {};
+      clearTimeout(p.timer); delete chkPollers[sid];
+      chkState[sid] = err ? { error: err } : {};
       renderTree(); renderDetail();
     }
     function tick() {
-      if (Date.now() - p.t0 > 90000) return stop('生成超时（90 秒），请稍后重试');
-      api('GET', '/api/summary?session_id=' + encodeURIComponent(sid)).then(function (j) {
+      if (Date.now() - p.t0 > 150000) return stop('核对超时（150 秒），请稍后重试');
+      api('GET', '/api/check?session_id=' + encodeURIComponent(sid)).then(function (j) {
         if (j.pending) { p.timer = setTimeout(tick, 2000); return; }
-        if (j.error) return stop('生成失败：' + j.error);
-        if (j.summary) sumLocal[sid] = j.summary;
+        if (j.error) return stop('核对失败：' + j.error);
+        if (j.check) chkLocal[sid] = j.check;
         stop(null);
-      }, function (e) { stop('生成失败：' + e.message); });
+      }, function (e) { stop('核对失败：' + e.message); });
     }
     p.timer = setTimeout(tick, 2000);
     renderDetail();
@@ -838,7 +872,7 @@ details.proc>summary{color:var(--muted)}
         if (selected && !find(selected)) selected = null;
         renderAll();
         allSessions().forEach(function (x) {
-          if (x.s.summary_pending && !pollers[x.s.session_id]) startPolling(x.s.session_id);
+          if (x.s.check_pending && !chkPollers[x.s.session_id]) startCheckPolling(x.s.session_id);
           if (x.s.recap_pending && !recapPollers[x.s.session_id]) startRecapPolling(x.s.session_id);
         });
       } else renderRefreshed();
@@ -868,7 +902,7 @@ details.proc>summary{color:var(--muted)}
     renderAll();
     if (window.matchMedia('(max-width:700px)').matches && !selected) document.getElementById('aside').classList.add('open');
     var f = selected && find(selected);
-    if (f && f.s.summary_pending && !pollers[selected]) startPolling(selected);
+    if (f && f.s.check_pending && !chkPollers[selected]) startCheckPolling(selected);
     if (f && f.s.recap_pending && !recapPollers[selected]) startRecapPolling(selected);
   });
   setInterval(load, 30000);

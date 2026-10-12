@@ -28,7 +28,7 @@ from pathlib import Path
 import config as tracker_config
 import specs
 import recap
-import summary
+import check
 
 HOME = Path.home()
 SESSIONS_DIR = HOME / ".claude" / "sessions"
@@ -63,7 +63,7 @@ _git_inflight: set[tuple] = set()
 _git_toplevel: dict[str, str | None] = {}
 _git_lock = threading.Lock()
 _git_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="git")
-_last_sessions: dict[str, dict] = {}     # session_id -> 最近一次 collect 的 session dict（/api/summary 用）
+_last_sessions: dict[str, dict] = {}     # session_id -> 最近一次 collect 的 session dict（/api/check、/api/recap 用）
 
 
 # =============================================================== utilities
@@ -1069,7 +1069,7 @@ def _cloudcli_links() -> dict:
 
 
 def _build_board(ws: str | None) -> dict:
-    """调 board.build，并补上每个 session 的 summary / summary_pending。board.py 不存在时抛 ImportError。"""
+    """调 board.build，并补上每个 session 的 check / check_pending、recap / recap_pending。board.py 不存在时抛 ImportError。"""
     import board  # noqa: PLC0415 — 延迟导入：board.py 缺失时只影响 /api/board
     data = collect_once()
     sessions = data.get("sessions", [])
@@ -1077,9 +1077,9 @@ def _build_board(ws: str | None) -> dict:
     for w in result.get("workspaces", []):
         for sess in w.get("sessions", []):
             sid = sess.get("session_id")
-            r = summary.get(sid, sess.get("transcript_path"))
-            sess["summary"] = r["summary"]
-            sess["summary_pending"] = r["pending"]
+            r = check.get(sid, sess.get("transcript_path"))
+            sess["check"] = r["check"]
+            sess["check_pending"] = r["pending"]
             rr = recap.get(sid, sess.get("transcript_path"))
             sess["recap"] = rr["recap"]
             sess["recap_pending"] = rr["pending"]
@@ -1094,14 +1094,7 @@ def _board_response(ws: str | None) -> tuple[int, dict]:
         return 501, {"error": "board module not available"}
 
 
-def _tasks_text(ws_path: str, change: dict) -> str:
-    try:
-        return (Path(ws_path) / change["path"] / "tasks.md").read_text(encoding="utf-8")[:8000]
-    except (OSError, KeyError, TypeError):
-        return ""
-
-
-def _summary_request(sid: str) -> tuple[int, dict]:
+def _check_request(sid: str) -> tuple[int, dict]:
     sess = _last_sessions.get(sid)
     if sess is None:
         collect_once()
@@ -1109,18 +1102,20 @@ def _summary_request(sid: str) -> tuple[int, dict]:
     if sess is None:
         return 404, {"error": "session not found"}
     changes: list[dict] = []
-    if sess.get("change_ids") is None:      # sessions 里还没有关联信息：经 board 补
-        try:
-            import board  # noqa: PLC0415
-            for w in board.build(list(_last_sessions.values()), None).get("workspaces", []):
-                for bs in w.get("sessions", []):
-                    if bs.get("session_id") == sid:
-                        ids = set(bs.get("change_ids") or [])
-                        changes = [{"id": c["id"], "tasks_text": _tasks_text(w.get("path", ""), c)}
-                                   for c in w.get("changes", []) if c.get("id") in ids]
-        except Exception:
-            changes = []
-    result = summary.request(sid, sess, changes)
+    try:
+        import board  # noqa: PLC0415
+        for w in board.build(list(_last_sessions.values()), None).get("workspaces", []):
+            for bs in w.get("sessions", []):
+                if bs.get("session_id") == sid:
+                    ids = set(bs.get("change_ids") or [])
+                    changes = [{"id": c["id"], "items": [{"id": i.get("id"), "done": bool(i.get("done")),
+                                                          "text": i.get("text")} for i in c.get("items") or []]}
+                               for c in w.get("changes", []) if c.get("id") in ids]
+    except Exception:  # noqa: BLE001 — board 出错按「无关联」处理，不调 LLM
+        changes = []
+    result = check.request(sid, sess, changes)
+    if result == "no_change":
+        return 404, {"error": "no change linked"}
     if result == "cooldown":
         return 200, {"pending": False}
     return 202, {"pending": True}
@@ -1195,10 +1190,10 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(body, status=status)
                 return
 
-            if path == "/api/summary":
+            if path == "/api/check":
                 sid = (parse_qs(urlparse(self.path).query).get("session_id") or [""])[0]
                 tpath = (_last_sessions.get(sid) or {}).get("transcript_path")
-                self._send_json(summary.get(sid, tpath))
+                self._send_json(check.get(sid, tpath))
                 return
 
             if path == "/api/recap":
@@ -1217,7 +1212,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         try:
             path = self.path.split("?", 1)[0]
-            if path not in ("/api/summary", "/api/recap"):
+            if path not in ("/api/check", "/api/recap"):
                 self._send_json({"error": "not found"}, status=404)
                 return
             try:
@@ -1230,7 +1225,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             if not sid or not isinstance(sid, str):
                 self._send_json({"error": "session_id required"}, status=400)
                 return
-            status, resp = (_recap_request if path == "/api/recap" else _summary_request)(sid)
+            status, resp = (_recap_request if path == "/api/recap" else _check_request)(sid)
             self._send_json(resp, status=status)
         except Exception as e:  # noqa: BLE001
             try:

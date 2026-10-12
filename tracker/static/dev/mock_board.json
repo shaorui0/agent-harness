@@ -42,24 +42,6 @@
       "backup-two-modes": "tracker.yml"
      },
      "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000001",
-     "summary": {
-      "done": [
-       "两个核心场景都通过 API 实测，最终镜像已部署",
-       "代码已推到远端 main"
-      ],
-      "remaining": [
-       "测试环境清理：脚本已给出，没执行",
-       "两个边界修复只有单测，没在线上验"
-      ],
-      "blocked_on": "等你执行清理脚本",
-      "diff_note": "51 个 commit，集中在 backup/，3 个文件未提交",
-      "generated_at": "2026-10-12T09:40:00Z",
-      "source_mtime": "2026-10-12T09:30:00Z",
-      "stale": true,
-      "model": "sonnet",
-      "now": "等你确认测试环境清理脚本"
-     },
-     "summary_pending": false,
      "last_text": "两个核心场景已经跑通。\n清理脚本已写好，但会删除测试环境的资源，需要你确认后再执行。\n确认命令：./cleanup-test-env.sh --dry-run",
      "last_tool": "Write: scripts/cleanup-test-env.sh",
      "recap": {
@@ -70,7 +52,66 @@
       "model": "sonnet",
       "skill_missing": true
      },
-     "recap_pending": false
+     "recap_pending": false,
+     "check": {
+      "changes": [
+       {
+        "id": "backup-two-modes",
+        "items": [
+         {
+          "id": "1.1",
+          "verdict": "ok",
+          "evidence": "读取了现有备份入口并列出三种模式（回合 3）"
+         },
+         {
+          "id": "1.2",
+          "verdict": "ok",
+          "evidence": "pytest 267 passed（回合 7）"
+         },
+         {
+          "id": "2.1",
+          "verdict": "ok",
+          "evidence": "curl 调用 copy 模式接口，返回 200"
+         },
+         {
+          "id": "2.2",
+          "verdict": "unsupported",
+          "evidence": ""
+         },
+         {
+          "id": "3.1",
+          "verdict": "ok",
+          "evidence": "镜像构建并推送成功"
+         },
+         {
+          "id": "3.2",
+          "verdict": "unsupported",
+          "evidence": "记录里只有「已部署」的说法，没有部署命令或结果"
+         },
+         {
+          "id": "3.3",
+          "verdict": "ok",
+          "evidence": "git push origin main 成功"
+         },
+         {
+          "id": "4.1",
+          "verdict": "unticked_done",
+          "evidence": "清理脚本已 dry-run，输出符合预期"
+         }
+        ]
+       }
+      ],
+      "off_spec": [
+       "顺手修了 CI 的缓存配置",
+       "给示例脚本加了 --verbose 开关"
+      ],
+      "blocked_on": "等你确认并执行测试环境清理脚本",
+      "generated_at": "2026-10-12T09:58:00Z",
+      "source_mtime": "2026-10-12T09:57:00Z",
+      "stale": false,
+      "model": "sonnet"
+     },
+     "check_pending": false
     },
     {
      "session_id": "aaaa1111-0000-4000-8000-000000000002",
@@ -100,12 +141,46 @@
       "autoscaler-cooldown": "touched"
      },
      "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000002",
-     "summary": null,
-     "summary_pending": false,
      "last_text": "先看了现有的冷却逻辑，发现缩容和扩容共用同一个计时器。\n计划：\n1. 把两个方向的计时器拆开\n2. 补一个回归测试，覆盖抖动场景\n3. 跑完整测试集\n4. 对比改动前后的扩缩次数\n目前第 1 步已完成，正在跑第 2 步写好的测试。\n如果测试通过，再做第 3 步；失败的话先看是不是计时器初始化顺序的问题。\n另外注意：默认冷却时间 300 秒没有改。",
      "last_tool": "Bash: pytest tests/test_cooldown.py -k flapping -x --maxfail=1",
      "recap": null,
-     "recap_pending": false
+     "recap_pending": false,
+     "check": {
+      "changes": [
+       {
+        "id": "autoscaler-cooldown",
+        "items": [
+         {
+          "id": "1",
+          "verdict": "ok",
+          "evidence": "新增 cooldown_seconds 参数"
+         },
+         {
+          "id": "2",
+          "verdict": "ok",
+          "evidence": "修改 controller.py 的判断分支"
+         },
+         {
+          "id": "3.1",
+          "verdict": "unsupported",
+          "evidence": "没有看到拆分计时器的改动"
+         },
+         {
+          "id": "3.2",
+          "verdict": "unticked_done",
+          "evidence": "pytest -k flapping 通过"
+         }
+        ]
+       }
+      ],
+      "off_spec": [],
+      "blocked_on": null,
+      "generated_at": "2026-10-12T08:40:00Z",
+      "source_mtime": "2026-10-12T08:35:00Z",
+      "stale": true,
+      "model": "sonnet"
+     },
+     "check_pending": false
     },
     {
      "session_id": "aaaa1111-0000-4000-8000-000000000003",
@@ -131,8 +206,6 @@
      "change_ids": [],
      "change_source": {},
      "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000003",
-     "summary": null,
-     "summary_pending": false,
      "last_text": "结论：延迟来自后端处理，不是网络。\n分段耗时显示连接阶段稳定在 5ms 以内，响应阶段在高峰期明显变长。",
      "last_tool": "Read: notes/latency-breakdown.md",
      "recap": null,
@@ -309,7 +382,8 @@
      "proposal": "防止扩缩容抖动……",
      "updated_at": "2026-10-12T09:50:00Z",
      "session_ids": [
-      "aaaa1111-0000-4000-8000-000000000002"
+      "aaaa1111-0000-4000-8000-000000000002",
+      "aaaa1111-0000-4000-8000-000000000003"
      ],
      "scope": null
     }
@@ -343,8 +417,6 @@
      "change_ids": [],
      "change_source": {},
      "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000001",
-     "summary": null,
-     "summary_pending": true,
      "last_text": null,
      "last_tool": "Bash: npm test -- --runInBand --testPathPattern='auth/(session|token|middleware)' --coverage --coverageReporters=text-summary --verbose --detectOpenHandles --forceExit --silent=false --bail --testTimeout=120000 --reporters=default --reporters=jest-junit --outputFile=reports/auth-junit.xml --ci --colors=false --maxWorkers=2 --logHeapUsage --no-cache --watchAll=false --findRelatedTests src/auth/session.ts src/auth/token.ts src/auth/middleware.ts src/auth/helpers/refresh.ts src/auth/helpers/revoke.ts（运行中 2 小时无输出）",
      "recap": null,
@@ -371,70 +443,78 @@
      },
      "spec": "重写 README 的快速上手部分",
      "transcript_path": "/Users/me/.claude/projects/y/bbbb2222.jsonl",
-     "change_ids": [],
-     "change_source": {},
-     "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000002",
-     "summary": {
-      "tasks": [
-       {
-        "title": "重写快速上手部分",
-        "done": true,
-        "subtasks": [
-         {
-          "text": "补充安装步骤",
-          "done": true
-         },
-         {
-          "text": "更新示例命令",
-          "done": true
-         }
-        ]
-       },
-       {
-        "title": "校对文档链接",
-        "done": false,
-        "subtasks": [
-         {
-          "text": "检查站内链接是否有效",
-          "done": true
-         },
-         {
-          "text": "替换已失效的外部链接",
-          "done": false
-         }
-        ]
-       },
-       {
-        "title": "补充常见问题",
-        "done": false,
-        "subtasks": []
-       }
-      ],
-      "blocked_on": null,
-      "diff_note": "只改了 README.md，一个提交",
-      "done": [
-       "补充安装步骤",
-       "更新示例命令",
-       "检查站内链接是否有效"
-      ],
-      "remaining": [
-       "替换已失效的外部链接",
-       "补充常见问题"
-      ],
-      "now": "（保留字段，UI 不显示）",
-      "generated_at": "2026-10-12T04:50:00Z",
-      "source_mtime": "2026-10-12T04:45:00Z",
-      "stale": false,
-      "model": "sonnet"
+     "change_ids": [
+      "readme-quickstart"
+     ],
+     "change_source": {
+      "readme-quickstart": "touched"
      },
-     "summary_pending": false,
+     "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000002",
      "last_text": "README 已更新，补充了安装步骤。",
      "last_tool": "Edit: README.md",
      "recap": null,
      "recap_pending": false
     }
    ],
-   "changes": []
+   "changes": [
+    {
+     "id": "readme-quickstart",
+     "title": "README 快速上手重写",
+     "path": "openspec/changes/readme-quickstart",
+     "progress": {
+      "done": 3,
+      "total": 5
+     },
+     "proposal": "重写快速上手部分，让新人十分钟内跑起来。",
+     "updated_at": "2026-10-12T04:50:00Z",
+     "session_ids": [
+      "bbbb2222-0000-4000-8000-000000000002"
+     ],
+     "scope": null,
+     "items": [
+      {
+       "id": "1.1",
+       "text": "补充安装步骤",
+       "done": true,
+       "current": false,
+       "group": "1. 内容",
+       "level": 0
+      },
+      {
+       "id": "1.2",
+       "text": "更新示例命令",
+       "done": true,
+       "current": false,
+       "group": "1. 内容",
+       "level": 0
+      },
+      {
+       "id": "2.1",
+       "text": "检查站内链接是否有效",
+       "done": true,
+       "current": false,
+       "group": "2. 校对",
+       "level": 0
+      },
+      {
+       "id": "2.2",
+       "text": "替换已失效的外部链接",
+       "done": false,
+       "current": true,
+       "group": "2. 校对",
+       "level": 0
+      },
+      {
+       "id": "2.3",
+       "text": "补充常见问题",
+       "done": false,
+       "current": false,
+       "group": "2. 校对",
+       "level": 0
+      }
+     ]
+    }
+   ]
   }
  ],
  "links": {

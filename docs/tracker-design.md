@@ -49,7 +49,7 @@ Binding   Session → Task | unscoped（带 source）
 ## 5. 视图（v3：树形，不再分 tab）
 
 - **左栏**：workspace → session。排序 needs_input > running > stale > done > exited，同级新的在前。「无 spec」只是 session 上的一个标记，不是单独的视图。
-- **右栏**（选中 session）：头部 phase（phase、diff、resume 命令）/ 任务进度（关联 change 的 `tasks.md`，树形：分组=任务、条目=子任务）/ Claude 梳理的任务（手动按钮生成，tasks → subtasks 完成情况）/ Session Summary（手动按钮执行 session_recap skill，七段 briefing 含续跑指令）。
+- **右栏**（选中 session）：头部 phase（phase、diff、resume 命令）/ 任务进度（关联 change 的 `tasks.md`，树形：分组=任务、条目=子任务）/ 每个 change 块含执行状态行（免费）和「核对勾选」按钮（手动，sonnet，对照 session 记录标 ✓ / ⚠ / ⏳、规格外的工作、在等什么；任务只来自 OpenSpec，没有 spec 的 session 暂不做任务视图）/ Session Summary（手动按钮执行 session_recap skill，七段 briefing 含续跑指令）。
 - 入口：CloudCLI 的 Tracker tab（主）、独立总览页 `127.0.0.1:8787`、`harness tracker show`（AI/终端）。
 
 ## 6. 部件去留
@@ -57,7 +57,7 @@ Binding   Session → Task | unscoped（带 source）
 | 部件 | 处理 |
 |---|---|
 | session 采集（phase、files、diff、exited 发现） | 保留，作为采集层 |
-| `/api/recap`（点开时按需调 Haiku） | 由手动摘要（`POST /api/summary`）取代 |
+| `/api/recap`（点开时按需调 Haiku） | 由手动 Session Summary（`POST /api/recap`）和「核对勾选」（`POST /api/check`）取代 |
 | 目标自动提炼（每条新 prompt、每次状态跳变都调一次 Haiku） | 已删除（移入 `_archive/`）：spec 本身就是目标，不用让 LLM 去猜 |
 | 前端每 2s 轮询 | 计划改成 30s，加手动刷新按钮 |
 | `specs.py` | ✅ 已完成：后台每 5 分钟重扫，不在请求路径上执行；支持 `{repo, ref, paths}` 写法；提供 `--validate` |
@@ -98,7 +98,7 @@ agent-harness 负责**写**：hook、skill，以及 `.harness/` 的格式。trac
 
 已定：
 
-- D2：删掉自动提炼，加手动「让 claude 梳理任务」按钮（按需调 sonnet）。
+- D2：删掉自动提炼，加手动「核对勾选」按钮（按需调 sonnet；任务只来自 OpenSpec）。
 - D3：不再分 tab，用 workspace → session 树，「无 spec」只是标记。
 - D4：宽 cover 只提示，drift 降为提示，不作为判断依据。
 - D5：不做 `/task`、`/verify`，用 OpenSpec 自带的 `/opsx:verify`；hook 和状态栏先不改。

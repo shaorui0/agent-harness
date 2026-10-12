@@ -362,3 +362,40 @@ Status 的展示：「最近一句话」用 `last_text`（保留换行，超过 
 - **不再单独有 Status 块**，不再显示「最近一句话」「最近动作」「现在在做」（这些只在折叠的过程细节里）。头部的 phase 圆点 + 文案 + 时长保留（要不要介入还是要看它）。
 - 没有关联 change 的 session：不显示 OpenSpec 任务块；「Claude 梳理」块是唯一的任务视图，空状态提示写「点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些」。
 - 只有一个触发按钮（Claude 梳理块里那个），去掉 v3.2 里 Status 右上角的第二个按钮。
+
+# v3.4：Status = 执行状态 + 一致性核对（2026-10-12）—— 取代 v3.3 的「Claude 梳理的任务」
+
+决定（用户确认）：任务和任务粒度**只来自 OpenSpec**（`tasks.md` 的条目 = 任务，缩进子条目 = 子任务）。不再让 Claude 自己划分任务树；没有 spec 的 session 暂不做任务视图（不做 Session 级任务）。Status 站在「观察到的实际情况」的维度，补 OpenSpec 勾选框说不出的部分。
+
+## 删除
+
+`summary.py`、`test_summary.py` 中的 summary 逻辑、`POST/GET /api/summary`、board 里每个 session 的 `summary` / `summary_pending`、config 的 `summary_model` —— 全部移除（`git mv` 到 `tracker/_archive/`，不 rm；`config.claude_env()` 及其测试要保留，移到 check 的测试里）。`/api/recap`（Session Summary）、`last_text`/`last_tool`（过程细节）保持不变。
+
+## 新增：POST /api/check  `{"session_id": "..."}`  →  202 `{"pending": true}`
+
+后台线程（结构参照 summary.py / recap.py：生成中重复 POST 返回 pending、完成后 60s 冷却、失败只记 error、缓存 `~/.harness/tracker/state/checks.jsonl` 每 session 保留最新一条、stale 现算）：
+1. 找到该 session 关联的 change（board 的 `change_ids`）；没有关联 change → 404 `{"error": "no change linked"}`。
+2. 输入：`session_recap.py` 骨架（头 1500 + 尾 12000 字符）+ 每个关联 change 的任务清单（用 `openspec.parse_tasks` 解析，按行列出 `id | [x]/[ ] | text`，模型必须用这里的 id 引用）+ diff 统计。
+3. `claude -p --model <tracker.check_model，缺省 sonnet> --no-session-persistence --setting-sources project`，`env=config.claude_env()`，cwd=SIDECAR_CWD，timeout 150s。
+4. prompt 规则：①对每个**已勾选**的条目给 `ok`（transcript 里有对应动作或产物作证据）或 `unsupported`（已勾选但记录里看不到证据；「说做了」不算证据）；②对每个**未勾选**的条目，只有当记录里有明确动作且结果显示已完成时才给 `unticked_done`，其余未勾选条目不要列出；③`evidence` 一句话、≤80 字、必须指向动作（命令 / 文件 / 提交 / 测试结果）；④`off_spec`：session 里实际做了、但 tasks.md 里没有任何条目对应的事，每条一句，最多 8 条；⑤`blocked_on`：此刻在等人或外部什么，没有写 null；⑥只输出一个 JSON 对象。
+
+## GET /api/check?session_id=...  →  `{"check": Check | null, "pending": bool, "error": str | null}`
+
+```json
+{"changes": [{"id": "backup-two-modes",
+              "items": [{"id": "1.1", "verdict": "ok", "evidence": "pytest 267 passed（回合 7）"},
+                        {"id": "2.2", "verdict": "unsupported", "evidence": ""},
+                        {"id": "4.1", "verdict": "unticked_done", "evidence": "删除脚本已执行，ns 已不存在"}]}],
+ "off_spec": ["顺手修了 CI 的缓存配置"], "blocked_on": null,
+ "generated_at": "ISO", "source_mtime": "ISO", "stale": false, "model": "sonnet"}
+```
+
+verdict 只有 `ok` / `unsupported` / `unticked_done`。服务端 normalize：丢弃 id 不在清单里的条目、verdict 非法的条目；`evidence` 截 80 字；`off_spec` 最多 8 条每条 ≤120 字。`/api/board` 每个 session 增加 `check`（读取时现算 stale）和 `check_pending`。
+
+## UI / show / 插件（统一约定）
+
+- 右栏：头部 → **每个 change 一块「任务进度」** → Session Summary → 折叠的「过程细节」。**不再有「Claude 梳理的任务」块。**
+- 每个 change 块里自上而下：标题 + 进度 + 按钮「核对勾选」（已有结果时「重新核对」，生成中禁用；一个 session 多个 change 时，各块的按钮都触发同一个请求，一次核对该 session 的所有 change；标签「点按钮才调用 · sonnet」）→ **执行状态行（免费）**：`change.session_ids` 里每个 session 一行：phase 圆点 + session 名 + phase 文案 + 时长；check 存在且 `blocked_on` 非空时再加「⏸ 在等：…」→ 任务树（分组 = 任务行，条目 = 子任务，保持 v3.3 的树形与折叠规则），树里每个条目按 check 结果加标记：`ok` → 灰色 `✓`；`unsupported` → 黄色「⚠ 无证据」；`unticked_done` → 蓝色「⏳ 似乎已做完」；有 evidence 时作为条目下一行的浅色小字（`ok` 的 evidence 默认折叠在 title 提示里即可）→ check 有 `off_spec` 时：「规格外的工作（考虑补进 tasks.md）」列表 → 生成时间、model、已过期标签。
+- 没有关联 change 的 session：不显示任务块；显示提示「没有 spec：在这个 session 里用 /opsx:new 建一个 change，或用 /harness-spec-backfill 补登」。
+- 左栏 session 行右侧进度保持（有 change 时 done/total，无 spec 显示「无 spec」；不再有「n/m 任务」）。
+- `show.py`：任务树同样带标记（`✓` 省略不输出，只输出 `⚠` / `⏳` 的条目与 evidence），加「在等：」「规格外：」。

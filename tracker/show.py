@@ -50,31 +50,38 @@ def _age(seconds) -> str:
     return f"{s // 86400}d"
 
 
-def _summary_for(session: dict):
-    if session.get("summary"):
-        return session["summary"]
-    try:  # summary 模块由别处维护，缺失就忽略
-        import summary
-        got = summary.get(session["session_id"], session.get("transcript_path"))
-        return got.get("summary")
-    except Exception:
-        return None
+MARK = {"unsupported": "⚠ 无证据", "unticked_done": "⏳ 似乎已做完"}
 
 
-def _sub_lines(items: list, base: int = 1) -> list[str]:
+def _marks(check: dict | None, cid: str) -> dict:
+    """check 里该 change 的 {item id: {verdict, evidence}}；ok 不输出所以也不收。"""
+    out = {}
+    for c in (check or {}).get("changes") or []:
+        if c.get("id") == cid:
+            for i in c.get("items") or []:
+                if i.get("verdict") in MARK:
+                    out[i.get("id")] = i
+    return out
+
+
+def _sub_lines(items: list, base: int = 1, marks: dict | None = None) -> list[str]:
     lines = []
     for it in items:
         pad = "  " * (base + int(it.get("level") or 0))
-        if it.get("done"):
-            lines.append(f"{pad}- [x] {it.get('id', '')} {it['text']}".replace("[x]  ", "[x] "))
-        else:
-            mark = "  ← 正在这条" if it.get("current") else ""
-            lines.append(f"{pad}- [ ] {it.get('id', '')} {it['text']}{mark}".replace("[ ]  ", "[ ] "))
+        box = "[x]" if it.get("done") else "[ ]"
+        tail = "" if it.get("done") or not it.get("current") else "  ← 正在这条"
+        m = (marks or {}).get(it.get("id"))
+        if m:
+            tail += f"  {MARK[m['verdict']]}"
+        lines.append(f"{pad}- {box} {it.get('id', '')} {it['text']}{tail}".replace(f"{box}  ", f"{box} "))
+        if m and m.get("evidence"):
+            lines.append(f"{pad}    证据：{m['evidence']}")
     return lines
 
 
-def _render_items(change: dict) -> list[str]:
-    """分组 = 任务（全部完成则折叠成一行），条目 = 子任务（按 level 缩进）。"""
+def _render_items(change: dict, marks: dict | None = None) -> list[str]:
+    """分组 = 任务（全部完成且没有标记则折叠成一行），条目 = 子任务（按 level 缩进）。"""
+    marks = marks or {}
     groups: list[tuple] = []  # (group 名或 None, [items])
     for it in change.get("items") or []:
         g = it.get("group")
@@ -87,41 +94,13 @@ def _render_items(change: dict) -> list[str]:
     lines = []
     for g, its in groups:
         if g is None:  # 无分组：level 0 条目本身就是任务
-            lines += _sub_lines(its, 0)
+            lines += _sub_lines(its, 0, marks)
             continue
         n = sum(1 for i in its if i.get("done"))
         ok = n == len(its)
         lines.append(f"- [{'x' if ok else ' '}] {g} ({n}/{len(its)})")
-        if not ok:
-            lines += _sub_lines(its)
-    return lines
-
-
-def _render_task_tree(tasks: list) -> list[str]:
-    lines = []
-    for t in tasks:
-        subs = t.get("subtasks") or []
-        n = sum(1 for x in subs if x.get("done"))
-        ok = bool(t.get("done")) and n == len(subs)
-        cnt = f" ({n}/{len(subs)})" if subs else ""
-        lines.append(f"- [{'x' if ok else ' '}] {t.get('title', '?')}{cnt}")
-        if not ok:
-            lines += [f"  - [{'x' if x.get('done') else ' '}] {x.get('text', '')}" for x in subs]
-    return lines
-
-
-def _render_summary(sm: dict) -> list[str]:
-    head = "Claude 梳理（已过期）：" if sm.get("stale") else "Claude 梳理："
-    lines = [head]
-    if sm.get("tasks"):
-        lines += _render_task_tree(sm["tasks"])
-    else:
-        lines += [f"- [x] {t}" for t in sm.get("done") or []]
-        lines += [f"- [ ] {t}" for t in sm.get("remaining") or []]
-    if sm.get("blocked_on"):
-        lines.append(f"在等：{sm['blocked_on']}")
-    if sm.get("diff_note"):
-        lines.append(f"改动：{sm['diff_note']}")
+        if not ok or any(i.get("id") in marks for i in its):
+            lines += _sub_lines(its, 1, marks)
     return lines
 
 
@@ -135,7 +114,13 @@ def _render_recap(rc: dict, full: bool) -> list[str]:
     return out
 
 
-def _render_session(s: dict, changes: dict, full_recap: bool = False) -> list[str]:
+def _exec_line(s: dict) -> str:
+    label = PHASE_LABEL.get(s.get("phase"), s.get("phase", "?"))
+    age = _age(s.get("phase_age_s"))
+    return f"执行：{s.get('name') or s['session_id'][:8]} {label}" + (f" {age}" if age else "")
+
+
+def _render_session(s: dict, changes: dict, full_recap: bool = False, by_id: dict | None = None) -> list[str]:
     cids = [c for c in s.get("change_ids") or [] if c in changes]
     prog = ", ".join(f"{changes[c]['progress']['done']}/{changes[c]['progress']['total']}" for c in cids)
     label = PHASE_LABEL.get(s.get("phase"), s.get("phase", "?"))
@@ -146,7 +131,7 @@ def _render_session(s: dict, changes: dict, full_recap: bool = False) -> list[st
     if prog:
         title += f" · {prog}"
     out = [title]
-    sm = _summary_for(s)
+    chk = s.get("check")
     if not cids:
         out.append("无 spec")
     for c in cids:
@@ -154,9 +139,17 @@ def _render_session(s: dict, changes: dict, full_recap: bool = False) -> list[st
         src = (s.get("change_source") or {}).get(c)
         suffix = f"，关联依据 {src}" if src else ""
         out.append(f"change {ch['id']} ({ch['progress']['done']}/{ch['progress']['total']}){suffix}")
-        out += _render_items(ch)
-    if sm:
-        out += _render_summary(sm)
+        linked = [(by_id or {}).get(i) for i in ch.get("session_ids") or []]
+        for ls in [x for x in linked if x] or [s]:
+            out.append(_exec_line(ls))
+        out += _render_items(ch, _marks(chk, c))
+    if chk and cids:
+        if chk.get("blocked_on"):
+            out.append(f"在等：{chk['blocked_on']}")
+        if chk.get("off_spec"):
+            out.append("规格外：" + "；".join(chk["off_spec"]))
+        ts = str(chk.get("generated_at") or "")
+        out.append(f"核对：{ts[11:16] or '?'}{'，已过期' if chk.get('stale') else ''}")
     if s.get("recap"):
         out += _render_recap(s["recap"], full_recap)
     if s.get("resume_cmd"):
@@ -177,8 +170,9 @@ def render(board: dict, full_recap: bool = False) -> str:
         changes = {c["id"]: c for c in w.get("changes", [])}
         if not w.get("sessions"):
             out.append("（无 session）")
+        by_id = {s["session_id"]: s for s in w.get("sessions", [])}
         for s in w.get("sessions", []):
-            out += _render_session(s, changes, full_recap)
+            out += _render_session(s, changes, full_recap, by_id)
             out.append("")
         linked = {c for s in w.get("sessions", []) for c in s.get("change_ids") or []}
         orphan = [c for c in w.get("changes", []) if c["id"] not in linked]

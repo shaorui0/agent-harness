@@ -96,10 +96,10 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 
 <main>
 <h1>Tracker：一个看板管住所有 session 的任务</h1>
-<p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>任务进度</b>（<code>tasks.md</code> 的分组 = 任务、条目 = 子任务，树形）、<b>Claude 梳理的任务</b>（任务 → 子任务的完成情况，用 <code>[x]</code> / <code>[ ]</code> 显示）；看板只关心任务和子任务完成了没有，不关心 session 当前在跑什么。另有一个按需的<b>Session Summary</b> 框，重建这个 session 的来龙去脉。</p>
+<p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>任务进度</b>（<code>tasks.md</code> 的分组 = 任务、条目 = 子任务，树形）、<b>Status</b>（执行状态 + 一致性核对）。任务和粒度只来自 OpenSpec；Status 补 <code>tasks.md</code> 勾选框说不出的部分：session 实际在做什么、勾选有没有证据、有没有做了但没勾、有没有规格外的工作。另有一个按需的<b>Session Summary</b> 框，重建这个 session 的来龙去脉。</p>
 <nav class="toc">
   <a href="#model">1 · 模型</a><a href="#dash">2 · 主看板</a><a href="#src">3 · 每个字段从哪来</a>
-  <a href="#arch">4 · 架构</a><a href="#summary">5 · 手动摘要</a><a href="#cloudcli">5½ · CloudCLI 集成</a><a href="#daily">6 · 日常怎么用</a>
+  <a href="#arch">4 · 架构</a><a href="#summary">5 · 核对勾选</a><a href="#cloudcli">5½ · CloudCLI 集成</a><a href="#daily">6 · 日常怎么用</a>
   <a href="#ai">7 · 给 AI 用</a><a href="#cut">8 · 砍掉的东西</a><a href="#status">9 · 进度</a>
 </nav>
 
@@ -112,12 +112,12 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
   <div class="arrow">→</div>
   <div class="box"><b>Task（0..n 个）</b><small>这个 session 推进的变更</small><span class="src">openspec/changes/&lt;id&gt;/</span></div>
   <div class="arrow">→</div>
-  <div class="box"><b>Spec · 梳理的任务</b><small>要做什么 · 做完了哪些任务和子任务</small><span class="src">tasks.md · claude -p</span></div>
+  <div class="box"><b>Spec · Status</b><small>要做什么 · 执行状态 + 勾选核对</small><span class="src">tasks.md · session · claude -p</span></div>
 </div>
 <div class="grid g3" style="margin-top:12px">
   <div class="card"><b>Session ↔ Task 是多对多</b><p class="note">一个 session 可以推进好几个 change，一个 change 也可以跨好几个 session。两者靠「session 改过 <code>openspec/changes/&lt;id&gt;/</code> 下的文件」自动关联；也可以在 change 目录里放一个 <code>tracker.yml</code>（<code>sessions: [前 8 位 sid]</code>）显式绑定。</p></div>
   <div class="card"><b>spec 用 OpenSpec 的产物</b><p class="note"><code>proposal.md</code> 写为什么做、做什么，<code>tasks.md</code> 是带 <code>- [ ]</code> 的清单。<b>清单本身就是进度</b>，靠解析文件得到，不需要 LLM。</p></div>
-  <div class="card"><b>没有 spec 的 session</b><p class="note">直接开干、没建 change 的工作也照样显示，只是没有任务进度，用「让 claude 梳理任务」来补。想正式登记，就在那个 session 里跑 <code>/harness-spec-backfill</code>。</p></div>
+  <div class="card"><b>没有 spec 的 session</b><p class="note">直接开干、没建 change 的工作也照样在左侧树里显示，标「无 spec」，暂不做任务视图。要看任务，在那个 session 里用 <code>/opsx:new</code> 建一个 change，或用 <code>/harness-spec-backfill</code> 补登。</p></div>
 </div>
 
 <!-- ============================================================ -->
@@ -143,7 +143,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
       <h4>Tracker · db-backup</h4>
       <div class="meta"><span><i class="dot d-wait"></i><b>在等你输入</b></span><span>diff +2.1k / −640</span><span>任务 7/9</span></div>
       <ul class="chk"><li class="x">[x] … 已完成的 7 条</li><li class="now">[ ] 4.1 清理测试环境 ← 正在这条</li><li>[ ] 4.2 你本人手测一遍</li></ul>
-      <p style="margin-top:8px"><span class="btn p">↻ 让 claude 梳理任务</span> <span class="note">内容和下面总览页里的右栏完全一样，切到 Chat tab 就能接着干</span></p>
+      <p style="margin-top:8px"><span class="btn p">核对勾选</span> <span class="note">内容和下面总览页里的右栏完全一样，切到 Chat tab 就能接着干</span></p>
     </div>
   </div>
 </div>
@@ -179,28 +179,17 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
       </div>
 
       <div class="blk">
-        <div class="blk-h"><b>任务进度 · backup-two-modes</b><span class="tag t-acc">openspec</span><div class="bar"><i style="width:78%"></i></div><span class="mono">7/9</span><span class="sp"></span><span class="note">tasks.md · 2 小时前</span></div>
+        <div class="blk-h"><b>任务进度 · backup-two-modes</b><span class="tag t-acc">openspec</span><div class="bar"><i style="width:78%"></i></div><span class="mono">7/9</span><span class="sp"></span><span class="tag t-warn">点按钮才调用 · sonnet · 已过期</span><span class="btn p">重新核对</span></div>
+        <p class="note"><i class="dot d-wait"></i><b>在等你输入</b> db-backup 3m · <i class="dot d-run"></i>运行中 backup-verify 40s<br>⏸ 在等：你确认清理命令（执行状态来自 session，免费；「在等」来自核对）</p>
         <ul class="chk">
           <li class="x">[x] 1. 精简备份模式 2/2</li>
           <li class="x">[x] 2. 实测 2/2</li>
-          <li class="x">[x] 3. 交付 3/3</li>
+          <li class="x">[x] 3. 交付 3/3 <span class="tag t-warn">⚠ 无证据</span></li>
           <li>[ ] <b>4. 收尾 0/2</b></li>
-          <li class="now">&nbsp;&nbsp;[ ] 4.1 清理测试环境 ← 正在这条</li>
+          <li class="now">&nbsp;&nbsp;[ ] 4.1 清理测试环境 ← 正在这条 <span class="tag t-acc">⏳ 似乎已做完</span></li>
           <li>&nbsp;&nbsp;[ ] 4.2 你本人手测一遍</li>
         </ul>
-        <p class="note">分组 = 任务，条目 = 子任务（按层级缩进）；全部完成的分组默认折叠成一行</p>
-      </div>
-
-      <div class="blk">
-        <div class="blk-h"><b>Claude 梳理的任务</b><span class="tag t-warn">点按钮才调用 · 已过期（session 之后又跑了 6 轮）</span><span class="sp"></span><span class="btn p">重新梳理</span></div>
-        <ul class="chk">
-          <li class="x">[x] 跨集群拷贝 2/2</li>
-          <li class="x">[x] 灾难恢复 2/2</li>
-          <li>[ ] <b>清理测试环境 1/2</b></li>
-          <li>&nbsp;&nbsp;[x] 脚本已给出</li>
-          <li>&nbsp;&nbsp;[ ] 执行清理（没执行）</li>
-        </ul>
-        <p class="note">⏸ 在等：你确认清理命令 · diff：51 个 commit，集中在 <code>backup/</code> · 生成于 18:40 · 用 sonnet 约 20–40 秒</p>
+        <p class="note">分组 = 任务，条目 = 子任务（按层级缩进）；全部完成的分组默认折叠。核对结果标在条目上：灰 ✓（有证据）、黄「⚠ 无证据」（已勾选但记录里看不到）、蓝「⏳ 似乎已做完」（没勾但记录里已做完），后两者下一行附一句 evidence。<br>规格外的工作（考虑补进 tasks.md）：顺手修了 CI 的缓存配置 · 核对于 18:40 · sonnet</p>
       </div>
 
       <div class="blk">
@@ -215,19 +204,19 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
   </div>
 </div>
 </div>
-<div class="callout">看板只读，所有按钮都不会改你的仓库。「让 claude 梳理任务」和「运行 session_recap」各调用一次非交互的 <code>claude -p</code>，「复制 resume」只是把命令复制到剪贴板，回到终端里粘贴执行。</div>
+<div class="callout">看板只读，所有按钮都不会改你的仓库。「核对勾选」和「Session Summary」各调用一次非交互的 <code>claude -p</code>，「复制 resume」只是把命令复制到剪贴板，回到终端里粘贴执行。</div>
 
 <!-- ============================================================ -->
 <h2 id="src">3 · 每个字段从哪来</h2>
 <div class="scroll"><table>
 <tr><th>看板上的东西</th><th>来源</th><th>怎么得到</th><th>花不花钱</th></tr>
 <tr><td>左侧 workspace → session 树</td><td><code>~/.claude/projects/&lt;slug&gt;/*.jsonl</code></td><td>按目录分组；进程活着看 <code>~/.claude/sessions/*.json</code>，最近 6 小时内退出的也列出来</td><td>免费</td></tr>
-<tr><td>头部 phase（在跑、在等你、结束、卡住）</td><td>session 状态文件 + transcript 尾部</td><td>增量读取，约 110ms 刷一次全量；「最近一句话」「最近动作」只放在折叠的「过程细节」里</td><td>免费</td></tr>
+<tr><td>头部 phase（在跑、在等你、结束、卡住）</td><td>session 状态文件 + transcript 尾部</td><td>增量读取，约 110ms 刷一次全量；「最近一句话」「最近动作」只放在折叠的「过程细节」里。每个 change 块里的<b>执行状态行</b>（phase 圆点 + session 名 + 文案 + 时长）同样来自这里</td><td>免费</td></tr>
 <tr><td>Task 列表</td><td><code>&lt;ws&gt;/openspec/changes/&lt;id&gt;/</code></td><td>session 改过的文件（oplog 的 target、transcript 里的 Edit/Write）落在某个 change 目录下，就关联到这个 change</td><td>免费</td></tr>
 <tr><td>任务进度（树形）</td><td><code>tasks.md</code></td><td>直接解析 checkbox：分组 = 任务（全部完成才 <code>[x]</code>，显示 n/m），条目 = 子任务（按缩进层级）；第一个 <code>[ ]</code> 标成「正在这条」</td><td>免费</td></tr>
 <tr><td>spec 详情（点开看）</td><td><code>proposal.md</code> / <code>design.md</code></td><td>原文渲染</td><td>免费</td></tr>
 <tr><td>diff</td><td>git</td><td>session 开始以后，在它改过的文件上统计 commit 数和行数，另加未提交的改动</td><td>免费</td></tr>
-<tr><td>Claude 梳理的任务</td><td><code>claude -p</code>（sonnet）</td><td><b>只在你点按钮时生成</b>：梳理出任务 → 子任务的完成情况（树形），结果缓存起来；session 之后有新动静就标「已过期」</td><td>点一次约 20–40 秒，一次 sonnet 调用</td></tr>
+<tr><td>一致性核对（✓ / ⚠ / ⏳、规格外、在等什么）</td><td><code>claude -p</code>（sonnet）</td><td><b>只在你点「核对勾选」时生成</b>：对照 session 记录与 <code>tasks.md</code>，结果缓存；session 之后有新动静就标「已过期」</td><td>点一次约 20–40 秒，一次 sonnet 调用</td></tr>
 <tr><td>Session Summary</td><td><code>claude -p</code>（sonnet）执行 <code>session_recap</code> skill</td><td><b>只在你点按钮时生成</b>：用 <code>session_recap.py</code> 抽 transcript 骨架，连同 skill 文本交给 claude 写七段 briefing（含续跑指令）；缓存，session 之后有新动静就标「已过期」</td><td>一次 sonnet 调用，约 1-3 分钟</td></tr>
 <tr><td>验收 gate（可选）</td><td><code>.harness/scope/&lt;slug&gt;.yml</code></td><td>与 change 同名的 scope 文件存在时，显示它的 review 状态</td><td>免费</td></tr>
 </table></div>
@@ -245,7 +234,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
   <div class="it"><b>sessions 采集</b>phase / 最后动作 / diff（原 claude_monitor）</div>
   <div class="it"><b>specs 扫描</b>openspec changes + scope，后台每 5 分钟</div>
   <div class="it"><b>join</b>session ↔ change（看改过的文件）</div>
-  <div class="it"><b>Claude 梳理的任务</b>按需 <code>claude -p</code>，缓存在 <code>~/.harness/tracker/</code></div>
+  <div class="it"><b>一致性核对</b>按需 <code>claude -p</code>，缓存在 <code>~/.harness/tracker/</code></div>
 </div></div>
 <div class="down">↑ 读文件</div>
 <div class="layer"><div class="lbl">文件<small>唯一的数据</small></div><div class="items">
@@ -264,19 +253,23 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 <p class="note">没有数据库，也没有常驻服务要维护。tracker 停掉、删掉都不会丢任何数据；所有数据都在最下面两层，本来就在那里。</p>
 
 <!-- ============================================================ -->
-<h2 id="summary">5 · 手动梳理任务：点一下，跑一次非交互的 claude</h2>
+<h2 id="summary">5 · 核对勾选：点一下，跑一次非交互的 claude</h2>
 <ol class="flow">
-  <li>在看板上点 <span class="btn p">↻ 让 claude 梳理任务</span></li>
-  <li>server 组装输入：<code>session_recap.py</code> 提取的 session 骨架 + 关联 change 的 <code>tasks.md</code> + git diff 统计</li>
+  <li>在看板上点 change 块里的 <span class="btn p">核对勾选</span>（一个 session 有多个 change 时，各块的按钮触发同一个请求）</li>
+  <li>server 组装输入：<code>session_recap.py</code> 提取的 session 骨架 + 关联 change 的任务清单（带 id 和勾选状态）+ git diff 统计</li>
   <li>在一个隔离目录里执行 <code>claude -p --model sonnet --no-session-persistence</code>，不进入交互，也不会作为新 session 出现在看板上</li>
-  <li>拿回 JSON：<code>{tasks:[{title, done, subtasks:[{text, done}]}], blocked_on, diff_note}</code>，渲染成树形 <code>[x]</code> / <code>[ ]</code>（旧缓存没有 tasks 时回退成平铺的 done / remaining）</li>
-  <li>结果按 transcript 修改时间缓存。session 之后又跑了几轮，看板就标「已过期，可重新生成」</li>
+  <li>拿回 JSON，渲染成条目上的标记、规格外的工作、「在等」；id 不在清单里的条目会被丢弃</li>
+  <li>结果按 transcript 修改时间缓存。session 之后又跑了几轮，看板就标「已过期，可重新核对」</li>
 </ol>
 <pre>输出约定（prompt 里写死，渲染端只认这几个字段）
-tasks:      [{title, done, subtasks:[{text, done}]}]  done 必须有 transcript 里的动作证据
-blocked_on: "在等谁或什么，没有就写 null"
-diff_note:  "一句话说明改了哪些地方"</pre>
-<p class="note">有 <code>tasks.md</code> 时，进度以它为准，梳理结果只是补充；没有 spec 的 session，它就是唯一的任务视图。原来那种「每条 prompt 自动调一次 LLM」的机制删掉。</p>
+changes:    [{id, items:[{id, verdict, evidence}]}]
+            verdict: ok | unsupported | unticked_done
+            已勾选 → ok（记录里有动作作证据）或 unsupported（看不到证据，「说做了」不算）
+            未勾选 → 只有记录里有明确动作且已完成才给 unticked_done，其余不列
+            evidence 一句话（≤80 字），指向动作：命令 / 文件 / 提交 / 测试结果
+off_spec:   ["session 里做了、但 tasks.md 没有对应条目的事"]  最多 8 条
+blocked_on: "此刻在等谁或什么，没有就写 null"</pre>
+<p class="note">任务和任务粒度只来自 OpenSpec，Claude 不再自己划分任务；没有 spec 的 session 暂不做任务视图。原来那种「每条 prompt 自动调一次 LLM」的机制删掉。</p>
 
 <!-- ============================================================ -->
 <h2 id="cloudcli">5½ · CloudCLI 集成怎么做</h2>
@@ -315,7 +308,7 @@ diff_note:  "一句话说明改了哪些地方"</pre>
 <div class="scroll" style="margin-top:12px"><table>
 <tr><th>场景</th><th>操作</th></tr>
 <tr><td>早上看昨晚还有什么没完</td><td>打开看板，左侧树里黄点是在等你、红点是疑似卡住，右侧看 <code>[ ]</code></td></tr>
-<tr><td>回到一个停了几天的 session</td><td>点「让 claude 梳理任务」，看完点「复制 resume」，回终端粘贴，说「继续」</td></tr>
+<tr><td>回到一个停了几天的 session</td><td>点「Session Summary」，看完点「复制 resume」，回终端粘贴，说「继续」</td></tr>
 <tr><td>开了十几个窗口，不知道谁在等我</td><td>顶栏「2 个 session 在等你」，点一下就只看这两个</td></tr>
 <tr><td>某个 session 没走流程</td><td>看板上它显示「无 spec」；需要的话在那个 session 里跑 backfill</td></tr>
 </table></div>
@@ -325,7 +318,8 @@ diff_note:  "一句话说明改了哪些地方"</pre>
 <div class="grid g3">
   <div class="card"><b>JSON</b><pre>GET /api/board
 GET /api/board?ws=infra
-POST /api/summary?sid=…</pre></div>
+POST /api/check  {session_id}
+GET  /api/check?session_id=…</pre></div>
   <div class="card"><b>Markdown CLI</b><pre>harness tracker show
 harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，agent 在 session 里直接跑就能看全局。</p></div>
   <div class="card"><b>文件本身</b><p class="note">tasks.md、scope、oplog 都是纯文本，agent 本来就能读。tracker 只是把它们汇总起来，没有另造一份数据。</p></div>
@@ -335,7 +329,7 @@ harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，ag
 <h2 id="cut">8 · 砍掉或简化的东西</h2>
 <div class="scroll"><table>
 <tr><th>原来</th><th>现在</th><th>为什么</th></tr>
-<tr><td>每条 prompt、每次状态变化都自动调一次 Haiku 提炼目标</td><td>删掉，改成手动「让 claude 梳理任务」</td><td>spec 写在 tasks.md 里，不用猜；自动调用花钱，还会出现自己喂自己的循环</td></tr>
+<tr><td>每条 prompt、每次状态变化都自动调一次 Haiku 提炼目标</td><td>删掉，改成手动「核对勾选」</td><td>spec 写在 tasks.md 里，不用猜；自动调用花钱，还会出现自己喂自己的循环</td></tr>
 <tr><td><code>/task</code> 命令（手动把 session 绑定到任务）</td><td>不做</td><td>session 改了哪个 change 的文件，就自动关联到哪个 change</td></tr>
 <tr><td><code>/verify</code> 命令（跑验收命令、记录 PASS/FAIL）</td><td>不做，用 OpenSpec 自带的 <code>/opsx:verify</code></td><td>已经有了，不重复造</td></tr>
 <tr><td>改 hooks 和状态栏，显示当前任务</td><td>先不做</td><td>看板已经够用，跑一周再看要不要</td></tr>
@@ -354,7 +348,8 @@ harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，ag
 <tr><td>CloudCLI 插件（manifest / index.js / server.js）+ install</td><td><span class="tag t-ok">已有</span> 安装与渲染验证过，还没在运行中的 CloudCLI 里加载过</td></tr>
 <tr><td>总览页的新 UI（左树 + 右详情）</td><td><span class="tag t-ok">已有</span></td></tr>
 <tr><td>openspec 扫描 + session ↔ change 关联</td><td><span class="tag t-ok">已有</span></td></tr>
-<tr><td>「让 claude 梳理任务」按钮（输出 tasks → subtasks）</td><td><span class="tag t-warn">实现中</span></td></tr>
+<tr><td>「核对勾选」按钮（一致性核对：✓ / ⚠ / ⏳、规格外、在等什么）</td><td><span class="tag t-warn">实现中</span></td></tr>
+<tr><td>执行状态行（每个 change 关联的 session：phase + 时长）</td><td><span class="tag t-warn">实现中</span></td></tr>
 <tr><td>任务进度树形展示、头部 phase、折叠的过程细节</td><td><span class="tag t-warn">实现中</span></td></tr>
 <tr><td>删掉自动提炼</td><td><span class="tag t-ok">已有</span></td></tr>
 <tr><td><code>/api/board</code>、<code>harness tracker show</code></td><td><span class="tag t-ok">已有</span></td></tr>

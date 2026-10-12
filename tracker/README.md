@@ -94,10 +94,10 @@ flowchart LR
 
 硬约束：
 
-- **只读**：不写 scope，不改仓库。没有任何自动调 LLM 的路径；只有两个按钮会调：「让 claude 梳理任务」（`POST /api/summary`，sonnet）和「运行 session_recap」（`POST /api/recap`，sonnet），都只在你手动点时调用一次。
+- **只读**：不写 scope，不改仓库。没有任何自动调 LLM 的路径；只有两个按钮会调：「核对勾选」（`POST /api/check`，sonnet）和「Session Summary」（`POST /api/recap`，sonnet），都只在你手动点时调用一次。
 - **写 scope 的只有 skill**，而且写之前要人确认。
 - **不建中心数据库**：数据都来自各 workspace 的 `.harness/` 和 `~/.claude/`。运行时缓存放在 `~/.harness/tracker/`，删掉不丢任何东西。
-- **仓库里不放数据**：本目录只有代码和 mock，真实快照和摘要缓存都在 `~/.harness/tracker/`。
+- **仓库里不放数据**：本目录只有代码和 mock，真实快照和核对、recap 缓存都在 `~/.harness/tracker/`。
 
 ## 3. 跑在哪、怎么配
 
@@ -105,9 +105,9 @@ flowchart LR
 |---|---|
 | 启动 | `bin/harness tracker [--port N]`。不常驻，没有 launchd |
 | 地址 | `http://127.0.0.1:8787`，只监听 loopback |
-| 依赖 | python3 stdlib、PyYAML（解析 scope）、本机 `git`。摘要按钮需要 PATH 里有 `claude` |
+| 依赖 | python3 stdlib、PyYAML（解析 scope）、本机 `git`。两个按钮需要 PATH 里有 `claude` |
 | 配置 | `~/.harness/config.yml` 的 `tracker:` 段，缺省值见 `config.py` |
-| 运行时数据 | `~/.harness/tracker/`：`snapshot.js`（scope 快照）、`state/summaries.jsonl`（摘要缓存）、`state/sidecar/`（旁路 claude 的固定 cwd，采集时按它把自己过滤掉） |
+| 运行时数据 | `~/.harness/tracker/`：`snapshot.js`（scope 快照）、`state/checks.jsonl`（核对缓存）、`state/recaps.jsonl`（Session Summary 缓存）、`state/sidecar/`（旁路 claude 的固定 cwd，采集时按它把自己过滤掉） |
 | 环境变量 | `HARNESS_TRACKER_PORT`、`HARNESS_TRACKER_HOME` |
 
 ```yaml
@@ -117,7 +117,7 @@ tracker:
   port: 8787
   scan_interval_s: 300
   recap_skill: ~/.claude/skills/session_recap/SKILL.md   # Session Summary 执行的 skill 文本
-  summary_model: sonnet                                   # 「Claude 梳理的任务」用的模型（缺省 sonnet，超时 150s）
+  check_model: sonnet                                     # 「核对勾选」用的模型（缺省 sonnet，超时 150s）
   recap_model: sonnet                                     # Session Summary 用的模型
 ```
 
@@ -189,7 +189,10 @@ scope_changes: [...]                   # 执行过程中范围改过几次
 
 看板上会显示每条关联用的是哪个依据（`change_source`）。
 
-**「Claude 梳理的任务」是手动按钮**：右栏的「让 claude 梳理任务」（已有结果时是「重新梳理」）才会调一次 sonnet（隔离 cwd、150s 超时、不落 session），输出 `tasks`（任务 → 子任务完成情况）、blocked_on、diff_note，兼容字段 done / remaining 由 tasks 生成，缓存在 `~/.harness/tracker/state/summaries.jsonl`。transcript 比摘要新 60 秒以上就标「已过期」。server 不会因为新 prompt 或状态变化自动调 LLM。
+**Status = 执行状态 + 一致性核对**：任务和任务粒度只来自 OpenSpec（`tasks.md` 的条目 = 任务，缩进子条目 = 子任务），不再让 Claude 自己划分任务。没有 spec 的 session 暂不做任务视图：要么 `/opsx:new` 建一个 change，要么 `/harness-spec-backfill` 补登。
+
+- **执行状态**（免费，来自 session）：该 change 关联的每个 session 一行：phase 圆点 + 名 + 文案 + 时长。
+- **一致性核对**（点「核对勾选」才调一次 sonnet，隔离 cwd、150s 超时、不落 session）：对照 session 记录和 `tasks.md`，对每个已勾选条目给 `ok`（✓）/ `unsupported`（⚠ 无证据），对未勾选但记录里已做完的条目给 `unticked_done`（⏳ 似乎已做完），另输出规格外的工作（`off_spec`，考虑补进 `tasks.md`）和此刻在等什么（`blocked_on`）。证据一句话，指向具体动作。结果缓存在 `~/.harness/tracker/state/checks.jsonl`，transcript 比核对新 60 秒以上就标「已过期」。一个 session 关联多个 change 时，一次请求核对全部。server 不会因为新 prompt 或状态变化自动调 LLM。
 
 ## 5. 日常怎么工作
 
@@ -243,14 +246,14 @@ flowchart TD
 - **左栏**：workspace → session。session 按 needs_input > running > stale > done > exited 排序，同级新的在前；每行带 phase、持续时间、任务进度（如 `7/9`）；没有 spec 的标「无 spec」。
 - **右栏**（选中一个 session）：
   - **头部 phase**（免费，来自 session）：phase 圆点、持续时间、branch、diff、`resume` 命令
-  - **任务进度（OpenSpec）**（免费，关联 change 的 `tasks.md`）：每个 change 一块，树形：分组 = 任务行（`[x]`/`[ ]` + `n/m`），条目 = 子任务（按层级缩进），第一个未完成项标「← 正在这条」，全部完成的分组默认折叠
-  - **Claude 梳理的任务**（点按钮，`claude -p` sonnet）：输出 tasks → subtasks 的完成情况，树形显示；`blocked_on` 非空时显示「在等：…」；没有 `tasks` 的旧缓存回退成平铺的 done / remaining；过期会标注
+  - **任务进度（OpenSpec）**：每个 change 一块。块头：进度 +「核对勾选」按钮（点按钮才调用 · sonnet；已有结果时「重新核对」）；其下是执行状态行（免费），核对结果里 `blocked_on` 非空时加「⏸ 在等：…」；再下是任务树：分组 = 任务行（`[x]`/`[ ]` + `n/m`），条目 = 子任务（按层级缩进），第一个未完成项标「← 正在这条」，全部完成的分组默认折叠；条目按核对结果标 `✓` / `⚠ 无证据` / `⏳ 似乎已做完`（附 evidence）；最后是「规格外的工作」列表和生成时间、已过期标签
+  - 没有关联 change 的 session：不显示任务块，提示「没有 spec：在这个 session 里用 /opsx:new 建一个 change，或用 /harness-spec-backfill 补登」
   - **Session Summary**（点按钮，执行 `session_recap` skill，sonnet）：七段 briefing，含可复制的续跑指令；结果缓存在 `~/.harness/tracker/state/recaps.jsonl`，过期会标注
   - **过程细节**（默认折叠）：最近一句话（`last_text`）、最近动作（`last_tool`）
 
-看板不关心 session 当前在跑什么，只关心有哪些任务、每个任务的子任务完成了没有。
+任务视图只看 OpenSpec 的任务和子任务完成了没有；「当前在跑什么」只在折叠的过程细节里。
 
-成本：「Claude 梳理的任务」点一次约 20–40 秒、一次 sonnet 调用；Session Summary 约 1-3 分钟、一次 sonnet 调用。两者都只在点按钮时调用一次 `claude -p`，没有后台自动调用。两者都带 `--setting-sources project`，因为用户级 hook 会往输出里注入格式契约，模型就不再按 skill / 摘要格式输出。`harness tracker show --recap` 打印已缓存的 recap 全文。
+成本：只有「核对勾选」和「Session Summary」两个按钮会调用模型，都用 sonnet、都只在点击时调一次 `claude -p`，没有后台自动调用。核对约 20–40 秒，Session Summary 约 1-3 分钟。两者都带 `--setting-sources project`，因为用户级 hook 会往输出里注入格式契约，模型就不再按 skill / 核对格式输出。`harness tracker show --recap` 打印已缓存的 recap 全文。
 前端 30s 轮询，可手动刷新。`harness tracker show` 输出同样的结构。
 
 ## 7. 能不能依赖（2026-10-12）
@@ -263,10 +266,10 @@ flowchart TD
 | scope 快照（`specs.py`）、`/deck` | 能跑，有后台刷新 | 🟡 drift 会受宽 cover 干扰；drift 只作提示 |
 | `harness doctor` 的 scope 校验 | 能跑 | ✅ |
 | OpenSpec 解析（`openspec.py`）、`/api/board`（`board.py`） | 已实现，有单测；在真实 workspace 上验证过 | ✅ |
-| 手动摘要（`summary.py`、`POST /api/summary`） | 已实现，有单测；真实调用验证过（模型已改 sonnet，点一次约 20–40 秒） | ✅ |
+| 一致性核对（`check.py`、`POST/GET /api/check`、看板与插件里的「核对勾选」） | 实现中，主 agent 验证后更新 | ⚪ |
 | `harness tracker show`（`show.py`） | 已实现，有单测 | ✅ |
 | 总览页新 UI | 已实现，真实数据下验证过 | ✅ |
-| 任务 → 子任务树形展示（OpenSpec 分组树、`summary.tasks`、折叠的过程细节） | 实现中，主 agent 验证后更新 | ⚪ |
+| 任务 → 子任务树形展示（OpenSpec 分组树、执行状态行、核对标记、折叠的过程细节） | 实现中，主 agent 验证后更新 | ⚪ |
 | Session Summary（`POST/GET /api/recap`、看板与插件里的框） | 实现中，主 agent 验证后更新 | ⚪ |
 | CloudCLI 插件（`cloudcli/`） | 已安装，渲染和后端代理单独验证过；**还没在运行中的 CloudCLI 里实际加载过** | 🟡 |
 | 自动目标提炼（`goal_tracker.py`、`/api/goals`） | 已删除，移入 `_archive/` | - |
@@ -277,17 +280,17 @@ flowchart TD
 ```
 tracker/
 ├── README.md          # 本文件
-├── CONTRACT.md        # HTTP API 契约（v3：/api/board、/api/summary，兼容 /api/state）
+├── CONTRACT.md        # HTTP API 契约（v3.4：/api/board、/api/check、/api/recap，兼容 /api/state）
 ├── config.py          # 路径与配置：数据在 ~/.harness/tracker/，配置在 ~/.harness/config.yml
 ├── server.py          # HTTP + session 采集（原 claude_monitor）
 ├── openspec.py        # 解析 openspec/changes/*：proposal、tasks.md
 ├── board.py           # 组装 /api/board：session 按 workspace 归组、关联 change
-├── summary.py         # 手动摘要：调 sonnet、缓存、过期判断
+├── check.py           # 一致性核对：调 sonnet、缓存、过期判断
 ├── recap.py           # Session Summary：执行 session_recap skill、缓存、过期判断
 ├── show.py            # harness tracker show：board → markdown
 ├── test_show.py       # show 的单测（python3 -m unittest test_show）
 ├── specs.py           # scope 扫描、drift、校验
-├── session_recap.py   # transcript 骨架提取器（摘要和 backfill 共用）
+├── session_recap.py   # transcript 骨架提取器（核对、recap 和 backfill 共用）
 ├── cloudcli/          # CloudCLI 插件（Tracker tab）
 ├── _archive/          # 已删除的自动提炼（goal_tracker.py 等），仅留存
 └── static/

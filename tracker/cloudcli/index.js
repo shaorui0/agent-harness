@@ -69,7 +69,7 @@ function locate(board, ctx) {
 export function mount(container, api) {
   const state = {
     board: null, error: null, pick: null, // pick: session id chosen from the overview
-    summaries: {}, pending: {}, sumError: {},
+    checks: {}, checkPending: {}, checkError: {},
     recaps: {}, recapPending: {}, recapError: {}, expanded: {},
     timers: new Set(), alive: true, ctx: api.context || {},
   };
@@ -91,42 +91,44 @@ export function mount(container, api) {
     render();
   }
 
-  function stopPoll(sid) {
-    const t = state.pending[sid];
+
+  function stopCheck(sid) {
+    const t = state.checkPending[sid];
     if (t) { clearInterval(t.timer); state.timers.delete(t.timer); }
-    delete state.pending[sid];
+    delete state.checkPending[sid];
   }
 
-  async function pollOnce(sid) {
+  async function checkPollOnce(sid) {
     try {
-      const r = await api.rpc('GET', '/api/summary?session_id=' + encodeURIComponent(sid));
+      const r = await api.rpc('GET', '/api/check?session_id=' + encodeURIComponent(sid));
       if (!state.alive) return;
-      if (r.summary) state.summaries[sid] = r.summary;
-      if (r.error) state.sumError[sid] = r.error; else delete state.sumError[sid];
-      if (!r.pending) stopPoll(sid);
+      if (r.check) state.checks[sid] = r.check;
+      if (r.error) state.checkError[sid] = r.error; else delete state.checkError[sid];
+      if (!r.pending) stopCheck(sid);
     } catch (e) {
-      state.sumError[sid] = String((e && e.message) || e);
-      stopPoll(sid);
+      state.checkError[sid] = String((e && e.message) || e);
+      stopCheck(sid);
     }
     render();
   }
 
-  async function generate(sid) {
-    if (state.pending[sid]) return;
-    delete state.sumError[sid];
+  // One request per session, shared by every change block of that session.
+  async function runCheck(sid) {
+    if (state.checkPending[sid]) return;
+    delete state.checkError[sid];
     const t = { n: 0 };
     t.timer = setInterval(() => {
-      if (++t.n > 45) { stopPoll(sid); state.sumError[sid] = '生成超时'; render(); return; }
-      pollOnce(sid);
+      if (++t.n > 75) { stopCheck(sid); state.checkError[sid] = '核对超时（150s）'; render(); return; }
+      checkPollOnce(sid);
     }, 2000);
     state.timers.add(t.timer);
-    state.pending[sid] = t;
+    state.checkPending[sid] = t;
     render();
     try {
-      await api.rpc('POST', '/api/summary', { session_id: sid });
+      await api.rpc('POST', '/api/check', { session_id: sid });
     } catch (e) {
-      stopPoll(sid);
-      state.sumError[sid] = String((e && e.message) || e);
+      stopCheck(sid);
+      state.checkError[sid] = String((e && e.message) || e);
       render();
     }
   }
@@ -185,64 +187,42 @@ export function mount(container, api) {
 
   const MONO = 'font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7';
 
-  // One task row (group / task): "[x] title  n/m", children indented. rows: [{done,text,level,current}]
-  function taskRow(title, done, count, rows) {
+  const VERDICT = {
+    ok: ['✓', 'var(--mut)', ''],
+    unsupported: ['⚠ 无证据', 'var(--warn)', ''],
+    unticked_done: ['⏳ 似乎已做完', 'var(--acc)', ''],
+  };
+
+  // One task row (group): "[x] title  n/m", children indented. rows: [{id,done,text,level,current}]
+  function taskRow(title, done, count, rows, marks) {
     const wrap = h('div', { style: 'margin-top:4px' });
     const sum = h('div', { style: MONO + ';font-weight:600' + (done ? ';color:var(--mut)' : '') },
       `${done ? '[x]' : '[ ]'} ${title}`,
       count ? h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, count) : null);
-    if (done && rows.length) {
+    const needOpen = rows.some((r) => marks && marks[r.id] && marks[r.id].verdict !== 'ok');
+    if (done && rows.length && !needOpen) {
       const d = h('details', null, h('summary', { style: 'cursor:pointer;list-style:none' }, sum));
-      for (const r of rows) d.append(subRow(r));
+      for (const r of rows) d.append(...subRow(r, marks));
       wrap.append(d);
     } else {
       wrap.append(sum);
-      for (const r of rows) wrap.append(subRow(r));
+      for (const r of rows) wrap.append(...subRow(r, marks));
     }
     return wrap;
   }
 
-  function subRow(r) {
+  // Returns [row, optional evidence line]. mark = check verdict for this item.
+  function subRow(r, marks) {
+    const m = marks && r.id ? marks[r.id] : null;
     const style = MONO + `;margin-left:${14 + 14 * (r.level || 0)}px` +
       (r.done ? ';color:var(--mut)' : r.current ? ';color:var(--warn);font-weight:600' : '');
-    return h('div', { style }, `${r.done ? '[x]' : '[ ]'} `, r.id ? r.id + ' ' : '', r.text, r.current ? '  ← 正在这条' : '');
-  }
-
-  // OpenSpec change -> tree: group = task, item = subtask (level = nesting); ungrouped level-0 item = task.
-  function changeTree(ch) {
-    const wrap = h('div', { style: 'margin-bottom:12px' });
-    const p = ch.progress || {};
-    wrap.append(h('div', { style: 'font-weight:600;margin-bottom:2px' }, ch.title || ch.id,
-      h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, `${p.done || 0}/${p.total || 0}`)));
-    const groups = [];
-    for (const it of ch.items || []) {
-      const g = it.group || null;
-      const last = groups[groups.length - 1];
-      if (last && last.g === g) last.items.push(it); else groups.push({ g, items: [it] });
-    }
-    for (const { g, items } of groups) {
-      if (g === null) { for (const it of items) wrap.append(subRow({ ...it, level: it.level || 0 })); continue; }
-      const n = items.filter((x) => x.done).length;
-      wrap.append(taskRow(g, n === items.length, `${n}/${items.length}`, items));
-    }
-    return wrap;
-  }
-
-  // summary.tasks tree; null tasks -> flat done/remaining fallback.
-  function claudeTree(sum) {
-    const out = h('div');
-    if (Array.isArray(sum.tasks)) {
-      for (const t of sum.tasks) {
-        const subs = t.subtasks || [];
-        const n = subs.filter((x) => x.done).length;
-        const done = !!t.done && n === subs.length;
-        out.append(taskRow(t.title || '?', done, subs.length ? `${n}/${subs.length}` : '',
-          subs.map((x) => ({ done: !!x.done, text: x.text, level: 0 }))));
-      }
-      return out;
-    }
-    for (const [arr, done] of [[sum.done, true], [sum.remaining, false]]) {
-      for (const t of arr || []) out.append(subRow({ done, text: t, level: 0 }));
+    const v = m && VERDICT[m.verdict];
+    const row = h('div', { style, title: m && m.verdict === 'ok' && m.evidence ? m.evidence : null },
+      `${r.done ? '[x]' : '[ ]'} `, r.id ? r.id + ' ' : '', r.text, r.current ? '  ← 正在这条' : '',
+      v ? h('span', { style: `margin-left:8px;font-weight:400;color:${v[1]}` }, v[0]) : null);
+    const out = [row];
+    if (m && m.verdict !== 'ok' && m.evidence) {
+      out.push(h('div', { style: `font-size:11.5px;color:var(--mut);margin-left:${14 + 14 * (r.level || 0) + 22}px;line-height:1.4` }, m.evidence));
     }
     return out;
   }
@@ -256,27 +236,70 @@ export function mount(container, api) {
       h('div', { style: 'display:flex;align-items:center;gap:8px' }, ...right));
   }
 
-  function claudeBlock(s) {
-    const sid = s.session_id;
-    const sum = state.summaries[sid] || s.summary;
-    const pending = !!state.pending[sid] || s.summary_pending;
-    const btn = h('button', { style: BTN, onclick: () => generate(sid) },
-      pending ? '生成中…' : sum ? '重新梳理' : '↻ 让 claude 梳理任务');
-    if (pending) btn.disabled = true;
-    const box = h('div', null, sectionHead('Claude 梳理的任务',
-      h('span', { style: 'color:var(--mut);font-size:12px' }, '点按钮才调用'), btn));
-    if (state.sumError[sid]) box.append(h('div', { style: 'color:#dc2626;margin-top:6px' }, state.sumError[sid]));
-    if (!sum) {
-      box.append(h('div', { style: 'color:var(--mut)' }, '点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些。'));
-      return box;
+  function checkFor(sid, s) {
+    return state.checks[sid] || (s && s.check) || null;
+  }
+
+  // Free execution status: one row per session linked to this change.
+  function execRows(ws, ch, chk) {
+    const out = h('div', { style: 'margin:4px 0 6px;padding:6px 8px;background:var(--card);border:1px solid var(--line);border-radius:6px' });
+    for (const sid of ch.session_ids || []) {
+      const s = (ws.sessions || []).find((x) => x.session_id === sid);
+      if (!s) continue;
+      out.append(h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center' },
+        phaseBadge(s), h('span', null, s.name || sid.slice(0, 8)),
+        s.phase_age_s != null ? h('span', { style: 'color:var(--mut)' }, fmtAge(s.phase_age_s)) : null));
     }
-    if (sum.stale) box.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
-    box.append(claudeTree(sum));
-    if (sum.blocked_on) box.append(h('div', { style: 'margin-top:8px;padding:4px 8px;border-radius:6px;background:var(--card);border:1px solid var(--warn);color:var(--warn)' }, '⏸ 在等：' + sum.blocked_on));
-    if (sum.diff_note) box.append(h('div', { style: 'margin-top:8px;color:var(--mut)' }, sum.diff_note));
-    box.append(h('div', { style: 'margin-top:6px;color:var(--mut);font-size:11.5px' },
-      `生成于 ${sum.generated_at || '?'}${sum.model ? ' · ' + sum.model : ''}`));
-    return box;
+    if (chk && chk.blocked_on) {
+      out.append(h('div', { style: 'margin-top:4px;color:var(--warn)' }, '⏸ 在等：' + chk.blocked_on));
+    }
+    return out;
+  }
+
+  // OpenSpec change block: header (+ check button) / exec status / tree with check marks / off_spec.
+  // sess = the session being viewed (null in the workspace overview: no button, no marks).
+  function changeBlock(ws, ch, sess) {
+    const wrap = h('div', { style: 'margin-bottom:14px' });
+    const p = ch.progress || {};
+    const sid = sess && sess.session_id;
+    const chk = sess ? checkFor(sid, sess) : null;
+    const pending = sess ? (!!state.checkPending[sid] || !!sess.check_pending) : false;
+    const right = [];
+    if (sess) {
+      const btn = h('button', { style: BTN, onclick: () => runCheck(sid) }, pending ? '核对中…' : chk ? '重新核对' : '核对勾选');
+      if (pending) btn.disabled = true;
+      right.push(h('span', { style: 'color:var(--mut);font-size:12px' }, '点按钮才调用 · sonnet'), btn);
+    }
+    wrap.append(h('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap' },
+      h('div', { style: 'font-weight:600' }, ch.title || ch.id,
+        h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, `${p.done || 0}/${p.total || 0}`)),
+      h('div', { style: 'display:flex;align-items:center;gap:8px' }, ...right)));
+    if (sess && state.checkError[sid]) wrap.append(h('div', { style: 'color:#dc2626;margin-top:4px' }, state.checkError[sid]));
+    wrap.append(execRows(ws, ch, chk));
+    const marks = {};
+    const cc = chk && (chk.changes || []).find((c) => c.id === ch.id);
+    for (const it of (cc && cc.items) || []) marks[it.id] = it;
+    if (chk && chk.stale) wrap.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
+    const groups = [];
+    for (const it of ch.items || []) {
+      const g = it.group || null;
+      const last = groups[groups.length - 1];
+      if (last && last.g === g) last.items.push(it); else groups.push({ g, items: [it] });
+    }
+    for (const { g, items } of groups) {
+      if (g === null) { for (const it of items) wrap.append(...subRow({ ...it, level: it.level || 0 }, marks)); continue; }
+      const n = items.filter((x) => x.done).length;
+      wrap.append(taskRow(g, n === items.length, `${n}/${items.length}`, items, marks));
+    }
+    if (chk && (chk.off_spec || []).length) {
+      wrap.append(h('div', { style: 'margin-top:8px;font-size:12px;font-weight:600;color:var(--mut)' }, '规格外的工作（考虑补进 tasks.md）'));
+      for (const t of chk.off_spec) wrap.append(h('div', { style: 'margin-left:14px' }, '• ' + t));
+    }
+    if (chk) {
+      wrap.append(h('div', { style: 'margin-top:6px;color:var(--mut);font-size:11.5px' },
+        `核对于 ${chk.generated_at || '?'}${chk.model ? ' · ' + chk.model : ''}`));
+    }
+    return wrap;
   }
 
   // Collapsed by default: the only place last_text / last_tool show up.
@@ -383,6 +406,7 @@ export function mount(container, api) {
     return box;
   }
 
+
   function sessionView(ws, s) {
     const out = h('div');
     const d = s.diff || {};
@@ -395,8 +419,11 @@ export function mount(container, api) {
         d.files_changed != null ? h('span', null, `diff ${d.files_changed} 文件 +${d.insertions || 0} / −${d.deletions || 0}`) : null));
     const ids = s.change_ids || [];
     const changes = ids.map((id) => (ws.changes || []).find((c) => c.id === id)).filter(Boolean);
-    if (changes.length) out.append(section('任务进度（OpenSpec）', ...changes.map(changeTree)));
-    out.append(claudeBlock(s), recapBlock(s), processDetails(s));
+    if (changes.length) out.append(section('任务进度（OpenSpec）', ...changes.map((c) => changeBlock(ws, c, s))));
+    else out.append(section('任务进度', h('div', { style: 'color:var(--mut)' }, '没有 spec：在这个 session 里用 /opsx:new 建一个 change，或用 /harness-spec-backfill 补登')));
+    out.append(recapBlock(s));
+    const pd = processDetails(s);
+    if (pd) out.append(pd);
     if (s.resume_cmd) {
       out.append(section('Resume', h('code', { style: 'display:block;padding:6px 8px;background:var(--card);border:1px solid var(--line);border-radius:6px;font-size:12px;overflow-x:auto;white-space:nowrap' }, s.resume_cmd)));
     }
@@ -413,7 +440,7 @@ export function mount(container, api) {
     }, phaseBadge(s), h('span', { style: 'flex:1' }, s.name || s.session_id),
       s.phase_age_s != null ? h('span', { style: 'color:var(--mut);font-size:12px' }, fmtAge(s.phase_age_s)) : null));
     out.append(section('Sessions', rows.length ? rows : h('div', { style: 'color:var(--mut)' }, '无 session')));
-    const chs = (ws.changes || []).map((c) => changeTree(c));
+    const chs = (ws.changes || []).map((c) => changeBlock(ws, c, null));
     if (chs.length) out.append(section('Changes', ...chs));
     return out;
   }

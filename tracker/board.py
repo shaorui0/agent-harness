@@ -1,6 +1,6 @@
 """/api/board 组装：session 按 workspace 归组、挂上 OpenSpec change、算 session↔change 关联。
 
-只读。summary / summary_pending 由 server 填（这里置 None / False）。
+只读。check / check_pending 由 server 填（这里置 None / False）。
 """
 from __future__ import annotations
 
@@ -228,7 +228,7 @@ def _normalize(s: dict) -> dict:
     sid, cwd = s.get("session_id"), s.get("cwd")
     if not s.get("resume_cmd") and sid:
         s["resume_cmd"] = (f"cd {shlex.quote(cwd)} && " if cwd else "") + f"claude --resume {sid}"
-    s["summary"], s["summary_pending"] = None, False  # server 负责填
+    s["check"], s["check_pending"] = None, False  # server 负责填
     s["change_ids"], s["change_source"] = [], {}
     return s
 

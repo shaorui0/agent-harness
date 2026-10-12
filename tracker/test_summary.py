@@ -18,7 +18,7 @@ class SummaryTest(unittest.TestCase):
         config.STATE_DIR = Path(self.tmp.name) / "state"
         config.SIDECAR_CWD = config.STATE_DIR / "sidecar"
         summary._run_extract = lambda tp, cwd: "skeleton text"
-        summary._run_claude = lambda prompt: '{"done":["wrote a.sh"],"remaining":["test it"],"blocked_on":null,"diff_note":"touched a.sh"}'
+        summary._run_claude = lambda prompt: '{"done":["wrote a.sh"],"remaining":["test it"],"now":"running tests","blocked_on":null,"diff_note":"touched a.sh"}'
         summary._reset_for_tests()
         self.addCleanup(self._restore)
         self.tp = Path(self.tmp.name) / "t.jsonl"
@@ -42,7 +42,72 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(n["done"], ["x"])
         self.assertEqual(n["remaining"], [])
         self.assertIsNone(n["blocked_on"])
-        self.assertEqual(n["model"], "haiku")
+        self.assertEqual(n["model"], summary._model())
+        self.assertTrue(n["model"])
+        self.assertIsNone(n["now"])
+        self.assertEqual(summary.normalize({"now": " doing x "}, 1.0)["now"], "doing x")
+        self.assertIsNone(summary.normalize({"now": "null"}, 1.0)["now"])
+
+    def test_normalize_tasks(self):
+        raw = {"tasks": [
+            {"title": "A", "done": False, "subtasks": [{"text": "a1", "done": True}, {"text": "a2", "done": True}]},
+            {"title": "B", "subtasks": [{"text": "b1", "done": True}, {"text": "b2"}, "b3", 5, {"text": " "}]},
+            {"title": "C", "done": True, "subtasks": []},
+            {"title": "D", "subtasks": "bad"},
+            {"title": " "}, "junk", {"subtasks": []},
+        ], "blocked_on": "user"}
+        n = summary.normalize(raw, 1.0)
+        self.assertEqual([t["title"] for t in n["tasks"]], ["A", "B", "C", "D"])
+        self.assertTrue(n["tasks"][0]["done"])          # 由子任务推导，覆盖模型给的 False
+        self.assertFalse(n["tasks"][1]["done"])
+        self.assertEqual(n["tasks"][1]["subtasks"],
+                         [{"text": "b1", "done": True}, {"text": "b2", "done": False}, {"text": "b3", "done": False}])
+        self.assertTrue(n["tasks"][2]["done"])          # 无子任务取模型的 done
+        self.assertFalse(n["tasks"][3]["done"])         # 缺失 -> False
+        self.assertEqual(n["tasks"][3]["subtasks"], [])
+        self.assertEqual(n["done"], ["a1", "a2", "b1", "C"])
+        self.assertEqual(n["remaining"], ["b2", "b3", "D"])
+        self.assertEqual(n["blocked_on"], "user")
+
+    def test_normalize_tasks_truncation(self):
+        raw = {"tasks": [{"title": "t" * 300, "subtasks": [{"text": "s" * 300, "done": True} for _ in range(20)]}
+                         for _ in range(20)]}
+        n = summary.normalize(raw, 1.0)
+        self.assertEqual(len(n["tasks"]), 15)
+        self.assertEqual(len(n["tasks"][0]["subtasks"]), 12)
+        self.assertEqual(len(n["tasks"][0]["title"]), 120)
+        self.assertEqual(len(n["tasks"][0]["subtasks"][0]["text"]), 120)
+
+    def test_normalize_without_tasks_keeps_legacy(self):
+        n = summary.normalize({"done": ["x"], "remaining": ["y"]}, 1.0)
+        self.assertIsNone(n["tasks"])
+        self.assertEqual((n["done"], n["remaining"]), (["x"], ["y"]))
+        self.assertIsNone(summary.normalize({"tasks": "bad", "done": ["x"]}, 1.0)["tasks"])
+        self.assertEqual(summary.normalize({"tasks": []}, 1.0)["tasks"], [])
+
+    def test_generate_with_fenced_tasks(self):
+        summary._run_claude = lambda p: ('```json\n{"tasks":[{"title":"T","subtasks":[{"text":"s","done":true}]}],'
+                                        '"blocked_on":null,"diff_note":"d"}\n```')
+        summary.request("s1", self.sess, [], sync=True)
+        r = summary.get("s1")["summary"]
+        self.assertEqual(r["tasks"], [{"title": "T", "done": True, "subtasks": [{"text": "s", "done": True}]}])
+        self.assertEqual(r["done"], ["s"])
+        self.assertIsNone(r["now"])
+
+    def test_old_cache_without_tasks(self):
+        summary._store("old", {"done": ["a"], "remaining": ["b"], "blocked_on": None, "diff_note": "",
+                               "source_mtime": None})
+        summary._reset_for_tests()
+        r = summary.get("old")["summary"]
+        self.assertIsNone(r["tasks"])
+        self.assertEqual((r["done"], r["remaining"]), (["a"], ["b"]))
+
+    def test_now_roundtrip_and_old_cache(self):
+        summary.request("s1", self.sess, [], sync=True)
+        self.assertEqual(summary.get("s1")["summary"]["now"], "running tests")
+        summary._store("old", {"done": [], "remaining": [], "blocked_on": None, "diff_note": "",
+                               "source_mtime": None})
+        self.assertIsNone(summary.get("old")["summary"]["now"])
 
     def test_generate_and_cache_roundtrip(self):
         self.assertEqual(summary.request("s1", self.sess, [], sync=True), "started")
@@ -96,6 +161,7 @@ class SummaryTest(unittest.TestCase):
     def test_prompt_contains_inputs(self):
         p = summary.build_prompt("SKELETON {braces}", {"diff": {"files_changed": 3}},
                                  [{"id": "chg-a", "tasks_text": "- [ ] 1.1 do thing"}])
+        self.assertIn("只输出一个 JSON 对象", p)
         for needle in ("SKELETON {braces}", "chg-a", "1.1 do thing", "files_changed=3"):
             self.assertIn(needle, p)
 

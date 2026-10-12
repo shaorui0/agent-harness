@@ -27,6 +27,7 @@ from pathlib import Path
 
 import config as tracker_config
 import specs
+import recap
 import summary
 
 HOME = Path.home()
@@ -100,6 +101,18 @@ def _meaningful_text(text: str) -> str:
     return "\n".join(lines) if lines else text
 
 
+def _clean_text(text: str, n: int = 1500) -> str:
+    """last_text：去掉行首 # 与 **，保留换行，超长截断加 …。"""
+    lines = []
+    for ln in (text or "").splitlines():
+        if ln.strip() and not re.sub(r"[=\-—\s【】#*|]", "", re.sub(r"【[^】]*】", "", ln)):
+            continue              # 纯分隔 / 段名行
+        ln = re.sub(r"^\s*#+\s*", "", ln).replace("**", "").rstrip()
+        lines.append(ln)
+    out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return out if len(out) <= n else out[:n].rstrip() + "…"
+
+
 def _clip(text: str, n: int) -> str:
     text = re.sub(r"[ \t]+", " ", (text or "").strip())
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -143,7 +156,7 @@ def _summarize_tool_use(block: dict) -> str:
     name = block.get("name", "?")
     inp = block.get("input") or {}
     if name == "Bash":
-        cmd = _clip(str(inp.get("command", "")), 60).replace("\n", " ; ")
+        cmd = _clip(str(inp.get("command", "")), 300).replace("\n", " ; ")
         return f"Bash: {cmd}"
     if name in ("Edit", "Write", "NotebookEdit", "MultiEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or "?"
@@ -151,9 +164,9 @@ def _summarize_tool_use(block: dict) -> str:
     if name == "Read":
         return f"Read: {inp.get('file_path', '?')}"
     if name in ("Glob", "Grep"):
-        return f"{name}: {_clip(str(inp.get('pattern', '')), 60)}"
+        return f"{name}: {_clip(str(inp.get('pattern', '')), 300)}"
     if name in ("Task", "Agent"):
-        desc = inp.get("description") or _clip(str(inp.get("prompt", "")), 60)
+        desc = inp.get("description") or _clip(str(inp.get("prompt", "")), 300)
         return f"Agent[{inp.get('subagent_type', '?')}]: {desc}"
     if name == "TodoWrite":
         return "TodoWrite"
@@ -161,10 +174,10 @@ def _summarize_tool_use(block: dict) -> str:
         return f"Skill: /{inp.get('skill', '?')}"
     desc = inp.get("description")
     if isinstance(desc, str) and desc:
-        return f"{name}: {_clip(desc, 60)}"
+        return f"{name}: {_clip(desc, 300)}"
     for v in inp.values():
         if isinstance(v, str) and v:
-            return f"{name}: {_clip(v, 60)}"
+            return f"{name}: {_clip(v, 300)}"
     return name
 
 
@@ -240,6 +253,8 @@ def _process_transcript(session_id: str, cwd: str, path: Path | None = None) -> 
             "last_human_prompt": None,
             "last_human_prompt_uuid": None,
             "last_action": None,
+            "last_text": None,   # 最近一段有内容的 assistant 文字（不被后续工具调用覆盖）
+            "last_tool": None,   # 最近一次工具调用的单行描述
             "model": None,
             "ctx_tokens_left": 0,
             "git_branch": None,
@@ -294,11 +309,16 @@ def _process_transcript(session_id: str, cwd: str, path: Path | None = None) -> 
                         tool_line = _summarize_tool_use(block)
                         _track_tool_use(state, block)
                     elif block.get("type") == "text" and (block.get("text") or "").strip():
-                        text_line = _clip(_meaningful_text(block["text"]), 80)
+                        cleaned = _clean_text(block["text"])
+                        if cleaned:
+                            text_line = cleaned
+                if text_line:
+                    state["last_text"] = text_line
                 if tool_line:
-                    state["last_action"] = tool_line
+                    state["last_tool"] = _clip(tool_line, 600)
+                    state["last_action"] = state["last_tool"]
                 elif text_line:
-                    state["last_action"] = text_line
+                    state["last_action"] = _clip(text_line, 600)
 
             elif etype == "attachment":
                 att = entry.get("attachment") or {}
@@ -822,6 +842,8 @@ def collect_once() -> dict:
             derived = {
                 "last_human_prompt": None,
                 "last_action": None,
+                "last_text": None,
+                "last_tool": None,
                 "model": None,
                 "ctx_tokens_left": 0,
                 "git_branch": None,
@@ -884,6 +906,8 @@ def collect_once() -> dict:
                     "status_updated_at": _ms_to_iso(status_updated_at_ms),
                     "last_human_prompt": derived.get("last_human_prompt"),
                     "last_action": derived.get("last_action"),
+                    "last_text": derived.get("last_text"),
+                    "last_tool": derived.get("last_tool"),
                     "ctx_tokens_left": derived.get("ctx_tokens_left") or 0,
                     "subagents_inflight": subagents_inflight,
                     "subagents_done": subagents_done,
@@ -928,6 +952,8 @@ def collect_once() -> dict:
                 "status_updated_at": None,
                 "last_human_prompt": derived.get("last_human_prompt"),
                 "last_action": derived.get("last_action"),
+                    "last_text": derived.get("last_text"),
+                    "last_tool": derived.get("last_tool"),
                 "ctx_tokens_left": derived.get("ctx_tokens_left") or 0,
                 "subagents_inflight": 0,
                 "subagents_done": 0,
@@ -1054,6 +1080,9 @@ def _build_board(ws: str | None) -> dict:
             r = summary.get(sid, sess.get("transcript_path"))
             sess["summary"] = r["summary"]
             sess["summary_pending"] = r["pending"]
+            rr = recap.get(sid, sess.get("transcript_path"))
+            sess["recap"] = rr["recap"]
+            sess["recap_pending"] = rr["pending"]
     result["links"] = _cloudcli_links()
     return result
 
@@ -1092,6 +1121,19 @@ def _summary_request(sid: str) -> tuple[int, dict]:
         except Exception:
             changes = []
     result = summary.request(sid, sess, changes)
+    if result == "cooldown":
+        return 200, {"pending": False}
+    return 202, {"pending": True}
+
+
+def _recap_request(sid: str) -> tuple[int, dict]:
+    sess = _last_sessions.get(sid)
+    if sess is None:
+        collect_once()
+        sess = _last_sessions.get(sid)
+    if sess is None:
+        return 404, {"error": "session not found"}
+    result = recap.request(sid, sess)
     if result == "cooldown":
         return 200, {"pending": False}
     return 202, {"pending": True}
@@ -1159,6 +1201,12 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(summary.get(sid, tpath))
                 return
 
+            if path == "/api/recap":
+                sid = (parse_qs(urlparse(self.path).query).get("session_id") or [""])[0]
+                tpath = (_last_sessions.get(sid) or {}).get("transcript_path")
+                self._send_json(recap.get(sid, tpath))
+                return
+
             self._send_json({"error": "not found"}, status=404)
         except Exception as e:  # noqa: BLE001 — 单个请求出错不能拖垮 server
             try:
@@ -1169,7 +1217,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         try:
             path = self.path.split("?", 1)[0]
-            if path != "/api/summary":
+            if path not in ("/api/summary", "/api/recap"):
                 self._send_json({"error": "not found"}, status=404)
                 return
             try:
@@ -1182,7 +1230,7 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
             if not sid or not isinstance(sid, str):
                 self._send_json({"error": "session_id required"}, status=400)
                 return
-            status, resp = _summary_request(sid)
+            status, resp = (_recap_request if path == "/api/recap" else _summary_request)(sid)
             self._send_json(resp, status=status)
         except Exception as e:  # noqa: BLE001
             try:

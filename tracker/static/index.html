@@ -104,7 +104,40 @@ details .body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:v
 @media (min-width:701px){.navtoggle{display:none!important}}
 .muted{color:var(--muted)}
 a.btn{text-decoration:none;display:inline-block}
+.st-row{margin:6px 0}
+.st-lbl{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:2px}
+.st-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.st-text.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden}
+.st-tool{font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-all;color:var(--muted);background:var(--code);border-radius:6px;padding:4px 8px}
+.st-now{margin:6px 0;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.st-now .v{overflow-wrap:anywhere;min-width:0}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);font-size:12.5px}
+.linkbtn:hover{text-decoration:underline}
+.rc{overflow-wrap:anywhere}
+.rc h4{font-size:13.5px;margin:12px 0 4px}
+.rc h4:first-child{margin-top:2px}
+.rc p{margin:2px 0;white-space:pre-wrap}
+.rc ul,.rc ol{margin:2px 0;padding-left:22px}
+.rc ul{list-style:disc}
+.rc ol{list-style:decimal}
+code.ic{background:var(--code);border-radius:4px;padding:0 4px;overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap}
+.rc li{margin:1px 0;overflow-wrap:anywhere}
+.codewrap{position:relative;margin:6px 0}
+.codewrap pre{margin:0;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:8px 64px 8px 10px;font-family:var(--mono);font-size:12.5px;overflow-x:auto;white-space:pre}
+.codewrap .btn{position:absolute;top:6px;right:6px;background:var(--panel)}
 a.btn.cli{display:inline-flex;align-items:center;gap:6px}
+.tk{display:flex;gap:6px;align-items:baseline;width:100%;margin:0;padding:1px 0;background:none;border:0;text-align:left;font:inherit;font-weight:700;color:var(--ink)}
+button.tk{cursor:pointer}
+button.tk:hover .tt{text-decoration:underline}
+.tk .car{color:var(--muted);font-size:10px;width:10px;flex:none;font-weight:400}
+.tk .tt{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.tk .cnt{color:var(--muted);font-weight:400;white-space:nowrap;flex:none}
+.tk.x{color:var(--muted)}
+.tk.now{color:var(--accent)}
+ul.chk li.tkli{margin-top:3px}
+ul.chk li.tkli:first-child{margin-top:0}
+details.proc{margin-top:0;margin-bottom:12px}
+details.proc>summary{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -142,6 +175,13 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
   var sumState = {};      // sid -> {pending, error}
   var pollers = {};       // sid -> {timer, t0}
   var mockJobs = {};
+  var recapLocal = {};    // sid -> recap
+  var recapState = {};    // sid -> {error}
+  var recapPollers = {};  // sid -> {timer, t0}
+  var mockRecapJobs = {};
+  var openText = {};      // sid -> last_text expanded
+  var openGrp = {};       // task-row key -> expanded (explicit user choice)
+  var openProc = {};      // sid -> process details open
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -211,6 +251,12 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
   function isPending(s) {
     return !!pollers[s.session_id];
   }
+  function recapOf(s) {
+    var loc = recapLocal[s.session_id];
+    if (loc && (!s.recap || (loc.generated_at || '') >= (s.recap.generated_at || ''))) return loc;
+    return s.recap;
+  }
+  function isRecapPending(s) { return !!recapPollers[s.session_id]; }
 
   /* ---------- header ---------- */
   function renderHeader() {
@@ -276,6 +322,10 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
       sess.forEach(function (s) {
         var chs = changesOf(w, s), right;
         if (chs.length) { var p = progOf(chs); right = h('span', { class: 'pg', text: p.d + '/' + p.t }); }
+        else if ((summaryOf(s) || {}).tasks && summaryOf(s).tasks.length) {
+          var tk = summaryOf(s).tasks, nd = tk.filter(function (x) { return x.done; }).length;
+          right = h('span', { class: 'pg', text: nd + '/' + tk.length + ' 任务' });
+        }
         else if (s.phase === 'stale') right = h('span', { class: 'pg bad', text: '疑似卡住' });
         else right = h('span', { class: 'pg', text: '无 spec' });
         t.appendChild(h('button', { class: 'sess' + (s.session_id === selected ? ' sel' : ''), type: 'button', title: PHASE_LBL[s.phase] || s.phase,
@@ -289,15 +339,54 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
   }
 
   /* ---------- detail ---------- */
-  function checklist(items) {
-    var out = [], lastGroup = null, ul = null;
-    items.forEach(function (it) {
-      if (it.group !== lastGroup && it.group) { out.push(h('div', { class: 'grp', text: it.group })); lastGroup = it.group; ul = null; }
-      if (!ul) { ul = h('ul', { class: 'chk' }); out.push(ul); }
-      ul.appendChild(h('li', { class: it.done ? 'x' : (it.current ? 'now' : '') },
-        (it.done ? '[x] ' : '[ ] ') + (it.id ? it.id + ' ' : '') + it.text + (it.current && !it.done ? '  ← 正在这条' : '')));
+  /* ---------- task tree (group = task row, items = subtasks) ---------- */
+  function groupTasks(items) {
+    var tasks = [], byGroup = {}, cur = null, firstNow = -1;
+    items.forEach(function (it, i) { if (firstNow < 0 && it.current && !it.done) firstNow = i; });
+    items.forEach(function (it, i) {
+      var lvl = it.level || 0;
+      var row = { text: (it.id ? it.id + ' ' : '') + it.text, done: !!it.done, now: i === firstNow };
+      if (it.group) {
+        var t = byGroup[it.group];
+        if (!t) { t = { title: it.group, own: true, subs: [] }; byGroup[it.group] = t; tasks.push(t); }
+        row.indent = lvl + 1; t.subs.push(row); cur = null;
+      } else if (lvl === 0 || !cur) {
+        cur = { title: row.text, own: row.done, now: row.now, subs: [] }; tasks.push(cur);
+      } else { row.indent = lvl; cur.subs.push(row); }
     });
-    return out;
+    tasks.forEach(function (t) {
+      var n = 0; t.subs.forEach(function (r) { if (r.done) n++; });
+      t.n = n; t.total = t.subs.length; t.done = t.own && n === t.total;
+    });
+    return tasks;
+  }
+  function claudeTasks(list) {
+    return (list || []).map(function (t) {
+      var subs = (t.subtasks || []).map(function (st) { return { text: st.text, done: !!st.done, indent: 1 }; });
+      var n = 0; subs.forEach(function (r) { if (r.done) n++; });
+      return { title: t.title, done: !!t.done, now: false, subs: subs, n: n, total: subs.length };
+    });
+  }
+  function taskTree(tasks, keyPrefix) {
+    var ul = h('ul', { class: 'chk' });
+    tasks.forEach(function (t) {
+      var key = keyPrefix + '/' + t.title;
+      var open = (key in openGrp) ? openGrp[key] : !(t.done && t.subs.length);
+      var lbl = (t.done ? '[x] ' : '[ ] ') + t.title + (t.now ? '  ← 正在这条' : '');
+      var kids = [h('span', { class: 'car', text: t.subs.length ? (open ? '▾' : '▸') : '' }), h('span', { class: 'tt', text: lbl })];
+      if (t.total) kids.push(h('span', { class: 'cnt', text: t.n + '/' + t.total }));
+      var cls = 'tk' + (t.done ? ' x' : (t.now ? ' now' : ''));
+      var row;
+      if (t.subs.length) {
+        row = h('button', { class: cls, type: 'button', 'aria-expanded': String(open), onclick: function () { openGrp[key] = !open; renderDetail(); } }, kids);
+      } else row = h('div', { class: cls }, kids);
+      ul.appendChild(h('li', { class: 'tkli' }, row));
+      if (open) t.subs.forEach(function (r) {
+        ul.appendChild(h('li', { class: r.done ? 'x' : (r.now ? 'now' : ''), style: 'padding-left:' + (r.indent * 1.7) + 'em' },
+          (r.done ? '[x] ' : '[ ] ') + r.text + (r.now ? '  ← 正在这条' : '')));
+      });
+    });
+    return ul;
   }
   function plainList(done, rem) {
     var ul = h('ul', { class: 'chk' });
@@ -354,25 +443,12 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
     frag.appendChild(meta);
     frag.appendChild(holder);
 
-    // Status
-    var st = h('section', { class: 'blk' });
-    st.appendChild(h('div', { class: 'blk-h' }, [h('b', { text: 'Status' }), h('span', { class: 'note', text: '来自 session，自动刷新' })]));
-    st.appendChild(h('div', { class: 'action', text: cleanMd(s.last_action) || '（暂无）' }));
-    if (!chs.length && s.spec) {
-      var key = s.session_id;
-      var det = h('details', {}, [h('summary', { text: 'spec（第一条 prompt）' }), h('div', { class: 'body', text: s.spec })]);
-      if (openSpec[key]) det.open = true;
-      det.addEventListener('toggle', function () { openSpec[key] = det.open; });
-      st.appendChild(det);
-    }
-    frag.appendChild(st);
-
-    // Tasks
+    // OpenSpec tasks (tree)
     chs.forEach(function (c) {
       var p = c.progress || { done: 0, total: 0 };
       var pct = p.total ? Math.round(p.done * 100 / p.total) : 0;
       var blk = h('section', { class: 'blk' });
-      var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Task · ' + c.title }), tag('openspec', 't-acc')]);
+      var head = h('div', { class: 'blk-h' }, [h('b', { text: '任务进度 · ' + c.title }), tag('openspec', 't-acc')]);
       if (c.scope) {
         var rv = c.scope.review ? ' · ' + c.scope.review : '';
         head.appendChild(tag('scope ' + c.scope.status + rv, c.scope.status === 'confirmed' ? 't-ok' : 't-warn'));
@@ -382,7 +458,7 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
       head.appendChild(h('span', { class: 'mono', text: p.done + '/' + p.total }));
       head.appendChild(h('span', { class: 'note', text: '更新 ' + fmtTime(c.updated_at) }));
       blk.appendChild(head);
-      checklist(c.items || []).forEach(function (n) { blk.appendChild(n); });
+      blk.appendChild(taskTree(groupTasks(c.items || []), ws.name + '/' + c.id));
       if (c.proposal) {
         var pk = ws.name + '/' + c.id;
         var pd = h('details', {}, [h('summary', { text: 'proposal' }), h('div', { class: 'body', text: c.proposal })]);
@@ -393,32 +469,202 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
       frag.appendChild(blk);
     });
 
-    // Summary
-    frag.appendChild(renderSummary(s));
+    // Claude-organised tasks
+    frag.appendChild(renderSummary(s, chs.length > 0));
+    // Session Recap
+    frag.appendChild(renderRecap(s));
+    // Process details (collapsed)
+    var proc = renderProc(s, chs);
+    if (proc) frag.appendChild(proc);
     return frag;
   }
 
-  function renderSummary(s) {
+  function renderProc(s, chs) {
+    var sid = s.session_id;
+    var lt = s.last_text ? String(s.last_text).replace(/^\s+|\s+$/g, '') : '';
+    var tool = s.last_tool ? String(s.last_tool) : '';
+    if (!lt && !tool && (chs.length || !s.spec)) return null;
+    var det = h('details', { class: 'proc' }, [h('summary', { text: '过程细节' })]);
+    if (lt) {
+      var needFold = lt.split('\n').length > 6 || lt.length > 300;
+      var txt = h('div', { class: 'st-text' + (needFold && !openText[sid] ? ' clamp' : ''), text: lt });
+      var row = h('div', { class: 'st-row' }, [h('div', { class: 'st-lbl', text: '最近一句话' }), txt]);
+      if (needFold) {
+        var tg = h('button', { class: 'linkbtn', type: 'button', text: openText[sid] ? '收起' : '展开' });
+        tg.addEventListener('click', function () {
+          openText[sid] = !openText[sid];
+          txt.classList.toggle('clamp', !openText[sid]);
+          tg.textContent = openText[sid] ? '收起' : '展开';
+        });
+        row.appendChild(tg);
+        requestAnimationFrame(function () {
+          if (!openText[sid] && txt.classList.contains('clamp') && txt.scrollHeight <= txt.clientHeight + 1) tg.hidden = true;
+        });
+      }
+      det.appendChild(row);
+    }
+    if (tool) det.appendChild(h('div', { class: 'st-row' }, [h('div', { class: 'st-lbl', text: '最近动作' }), h('div', { class: 'st-tool', text: tool })]));
+    if (!chs.length && s.spec) det.appendChild(h('div', { class: 'st-row' }, [h('div', { class: 'st-lbl', text: 'spec（第一条 prompt）' }), h('div', { class: 'st-text', text: s.spec })]));
+    if (openProc[sid]) det.open = true;
+    det.addEventListener('toggle', function () { openProc[sid] = det.open; });
+    return det;
+  }
+
+  function renderSummary(s, hasChange) {
     var sid = s.session_id, sm = summaryOf(s), pend = isPending(s), stt = sumState[sid] || {};
     var blk = h('section', { class: 'blk' });
-    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Summary' })]);
-    if (sm && sm.stale) head.appendChild(tag('已过期（session 之后又有新动静）', 't-warn'));
+    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Claude 梳理的任务' }), tag('点按钮才调用')]);
+    if (sm && sm.stale) head.appendChild(tag('已过期', 't-warn'));
     head.appendChild(h('span', { class: 'sp' }));
-    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend,
-      text: pend ? '生成中…' : (sm && sm.stale ? '↻ 重新生成' : '↻ 生成摘要') });
+    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend, text: pend ? '生成中…' : (sm ? '重新梳理' : '↻ 让 claude 梳理任务') });
     btn.addEventListener('click', function () { startSummary(sid); });
     head.appendChild(btn);
     blk.appendChild(head);
     if (sm) {
-      blk.appendChild(plainList(sm.done, sm.remaining));
+      if (Array.isArray(sm.tasks)) blk.appendChild(taskTree(claudeTasks(sm.tasks), 'sum/' + sid));
+      else blk.appendChild(plainList(sm.done, sm.remaining));
       if (sm.blocked_on) blk.appendChild(h('div', { class: 'callout', text: '⏸ 在等：' + sm.blocked_on }));
       if (sm.diff_note) blk.appendChild(h('div', { class: 'note', style: 'margin-top:6px', text: sm.diff_note }));
       blk.appendChild(h('div', { class: 'note', text: '生成于 ' + fmtTime(sm.generated_at) + (sm.model ? ' · ' + sm.model : '') }));
     } else if (!pend) {
-      blk.appendChild(h('div', { class: 'note', text: '点按钮生成：已完成了哪些、还剩哪些' }));
+      blk.appendChild(h('div', { class: 'note', text: hasChange ? '点按钮：让 claude 按 session 的实际动作核对任务完成情况'
+        : '点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些' }));
     }
     if (stt.error) blk.appendChild(h('div', { class: 'err', text: stt.error }));
     return blk;
+  }
+
+  /* ---------- session recap ---------- */
+  function inline(text) {
+    return String(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).map(function (seg) {
+      if (!seg) return null;
+      if (seg.length > 4 && seg.slice(0, 2) === '**' && seg.slice(-2) === '**') return h('strong', { text: seg.slice(2, -2) });
+      if (seg.length > 2 && seg[0] === '`' && seg[seg.length - 1] === '`') return h('code', { class: 'ic', text: seg.slice(1, -1) });
+      return document.createTextNode(seg);
+    });
+  }
+  function renderMd(md) {
+    var box = h('div', { class: 'rc' });
+    var lines = String(md || '').replace(/\r\n?/g, '\n').split('\n');
+    var para = [], ul = null, i = 0;
+    function flushP() { if (para.length) { box.appendChild(h('p', {}, inline(para.join('\n')))); para = []; } }
+    while (i < lines.length) {
+      var ln = lines[i];
+      if (/^\s*```/.test(ln)) {
+        flushP(); ul = null;
+        var code = []; i++;
+        while (i < lines.length && !/^\s*```/.test(lines[i])) { code.push(lines[i]); i++; }
+        i++;
+        box.appendChild(codeBlock(code.join('\n')));
+        continue;
+      }
+      var m;
+      if ((m = /^#{2,}\s+(.*)$/.exec(ln)) || (m = /^#\s+(.*)$/.exec(ln))) { flushP(); ul = null; box.appendChild(h('h4', {}, inline(m[1]))); }
+      else if ((m = /^\s*[-*]\s+(.*)$/.exec(ln)) || (m = /^\s*\d+[.)]\s+(.*)$/.exec(ln))) {
+        flushP();
+        var ord = /^\s*\d/.test(ln);
+        if (!ul || ul.tagName !== (ord ? 'OL' : 'UL')) { ul = h(ord ? 'ol' : 'ul'); box.appendChild(ul); }
+        ul.appendChild(h('li', {}, inline(m[1])));
+      }
+      else if (!ln.trim()) { flushP(); ul = null; }
+      else { ul = null; para.push(ln); }
+      i++;
+    }
+    flushP();
+    return box;
+  }
+  function codeBlock(text) {
+    var pre = h('pre', { text: text });
+    var btn = h('button', { class: 'btn', type: 'button', text: '复制' });
+    var note = h('div', { class: 'note', hidden: true });
+    function selectPre() {
+      try { var r = document.createRange(); r.selectNodeContents(pre); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (e) {}
+    }
+    function fail() { selectPre(); note.textContent = '自动复制失败，已选中，请按 Cmd/Ctrl+C'; note.hidden = false; }
+    function ok() { note.hidden = true; btn.textContent = '已复制'; setTimeout(function () { btn.textContent = '复制'; }, 1500); }
+    btn.addEventListener('click', function () {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fail);
+        else fail();
+      } catch (e) { fail(); }
+    });
+    return h('div', {}, [h('div', { class: 'codewrap' }, [pre, btn]), note]);
+  }
+
+  function renderRecap(s) {
+    var sid = s.session_id, rc = recapOf(s), pend = isRecapPending(s), stt = recapState[sid] || {};
+    var blk = h('section', { class: 'blk' });
+    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Session Recap' }), tag('执行 session_recap skill', 't-acc')]);
+    if (rc && rc.stale) head.appendChild(tag('已过期', 't-warn'));
+    if (rc && rc.skill_missing) head.appendChild(tag('用了内置说明'));
+    head.appendChild(h('span', { class: 'sp' }));
+    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend, text: pend ? '生成中…' : (rc ? '重新运行' : '▶ 运行 session_recap') });
+    btn.addEventListener('click', function () { startRecap(sid); });
+    head.appendChild(btn);
+    blk.appendChild(head);
+    if (rc && rc.markdown) {
+      blk.appendChild(renderMd(rc.markdown));
+      blk.appendChild(h('div', { class: 'note', style: 'margin-top:8px', text: '生成于 ' + fmtTime(rc.generated_at) + (rc.model ? ' · ' + rc.model : '') }));
+    } else if (!pend) {
+      blk.appendChild(h('div', { class: 'note', text: '点按钮：用 session_recap skill 重建这个 session 的来龙去脉（一句话 / 已落地 / 停在哪 / 下一步 / 续跑指令）' }));
+    }
+    if (stt.error) blk.appendChild(h('div', { class: 'err', text: stt.error }));
+    return blk;
+  }
+
+  function startRecap(sid) {
+    recapState[sid] = {};
+    recapPollers[sid] = { timer: null, t0: Date.now(), starting: true };
+    api('POST', '/api/recap', { session_id: sid }).then(function () { startRecapPolling(sid); }, function (e) {
+      clearTimeout(recapPollers[sid] && recapPollers[sid].timer);
+      delete recapPollers[sid]; recapState[sid] = { error: '运行失败：' + e.message }; renderDetail();
+    });
+    renderDetail();
+  }
+  function startRecapPolling(sid) {
+    var p = recapPollers[sid] || (recapPollers[sid] = { t0: Date.now() });
+    if (p.timer) return;
+    p.t0 = Date.now();
+    function stop(err) {
+      clearTimeout(p.timer); delete recapPollers[sid];
+      recapState[sid] = err ? { error: err } : {};
+      renderDetail();
+    }
+    function tick() {
+      if (Date.now() - p.t0 > 240000) return stop('生成超时（240 秒），请稍后重试');
+      api('GET', '/api/recap?session_id=' + encodeURIComponent(sid)).then(function (j) {
+        if (j.pending) { p.timer = setTimeout(tick, 3000); return; }
+        if (j.error) return stop('运行失败：' + j.error);
+        if (j.recap) recapLocal[sid] = j.recap;
+        stop(null);
+      }, function (e) { stop('运行失败：' + e.message); });
+    }
+    p.timer = setTimeout(tick, 3000);
+    renderDetail();
+  }
+  function mockRecap(method, url, body) {
+    return new Promise(function (res) {
+      if (method === 'POST') {
+        if (!mockRecapJobs[body.session_id]) mockRecapJobs[body.session_id] = { t: Date.now() };
+        return res({ pending: true });
+      }
+      var q = decodeURIComponent((url.split('session_id=')[1] || '').split('&')[0]);
+      var job = mockRecapJobs[q];
+      if (job && Date.now() - job.t >= 2500) {
+        delete mockRecapJobs[q];
+        var now = new Date().toISOString();
+        return res({ pending: false, error: null, recap: { model: 'mock', skill_missing: false, stale: false, generated_at: now, source_mtime: now,
+          markdown: [
+            '## 一句话', '把示例服务的配置加载改成**按环境分层**，主流程已通过本地验证，入口是 `load_config()`。', '',
+            '## 已经落地的', '- **配置分层**逻辑已实现并合入当前分支 `feat/layered-config`', '- 对应的单元测试已补齐并通过', '',
+            '## 停在哪', '正在做集成验证，最后一步是在测试环境跑完整流程，还没有结果。', '',
+            '## 未完成 / 下一步', '1. 在测试环境跑完整流程并记录结果（`make e2e`）', '2. 根据结果决定是否需要补兼容处理', '- 另：**不要**改 `defaults.yml`', '',
+            '## 关键决策与约束', '- 默认值保持不变，避免影响现有使用者', '- 不引入新的外部依赖', '',
+            '## 需要你拍板的', '- 旧配置格式是否还要再保留一个版本', '',
+            '## 续跑指令', '```', 'cd /path/to/project', 'claude --resume <session-id>', '```', ''].join('\n') } });
+      }
+      res({ pending: !!job, error: null, recap: null });
+    });
   }
 
   function renderOverview() {
@@ -481,6 +727,7 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
     if (selected && window.matchMedia('(max-width:700px)').matches) document.getElementById('aside').classList.remove('open');
     var f = selected && find(selected);
     if (f && f.s.summary_pending && !pollers[selected]) startPolling(selected);
+    if (f && f.s.recap_pending && !recapPollers[selected]) startRecapPolling(selected);
   }
   function hashSid() {
     var m = /[#&]sid=([^&]+)/.exec(location.hash);
@@ -490,6 +737,7 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
   /* ---------- summary generation ---------- */
   function api(method, url, body) {
     if (MOCK && /\/api\/summary/.test(url)) return mockSummary(method, url, body);
+    if (MOCK && /\/api\/recap/.test(url)) return mockRecap(method, url, body);
     var opt = { method: method, headers: {} };
     if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
     return fetch(url, opt).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok && r.status !== 202) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
@@ -506,6 +754,11 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
       if (job && Date.now() - job.t >= 2000) {
         delete mockJobs[q];
         return res({ pending: false, error: null, summary: {
+          tasks: [
+            { title: '示例任务 A：核心流程', done: true, subtasks: [{ text: '实现主流程', done: true }, { text: '本地验证通过', done: true }] },
+            { title: '示例任务 B：收尾', done: false, subtasks: [{ text: '更新文档', done: true }, { text: '边界情况补测', done: false }, { text: '灰度上线', done: false }] },
+            { title: '示例任务 C：待评估', done: false, subtasks: [] }],
+          now: '示例：正在补测边界情况',
           done: ['示例：核心流程已跑通并验证', '示例：文档已更新'],
           remaining: ['示例：边界情况补测', '示例：线上灰度'],
           blocked_on: null,
@@ -565,7 +818,10 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
         data = JSON.parse(text);
         if (selected && !find(selected)) selected = null;
         renderAll();
-        allSessions().forEach(function (x) { if (x.s.summary_pending && !pollers[x.s.session_id]) startPolling(x.s.session_id); });
+        allSessions().forEach(function (x) {
+          if (x.s.summary_pending && !pollers[x.s.session_id]) startPolling(x.s.session_id);
+          if (x.s.recap_pending && !recapPollers[x.s.session_id]) startRecapPolling(x.s.session_id);
+        });
       } else renderRefreshed();
     }).catch(function (e) {
       setErr('读取看板失败：' + e.message + '（显示的是上次数据）');
@@ -594,6 +850,7 @@ a.btn.cli{display:inline-flex;align-items:center;gap:6px}
     if (window.matchMedia('(max-width:700px)').matches && !selected) document.getElementById('aside').classList.add('open');
     var f = selected && find(selected);
     if (f && f.s.summary_pending && !pollers[selected]) startPolling(selected);
+    if (f && f.s.recap_pending && !recapPollers[selected]) startRecapPolling(selected);
   });
   setInterval(load, 30000);
   // keep the "refreshed" label honest even if the tab sleeps

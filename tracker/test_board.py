@@ -32,6 +32,20 @@ def write(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
+class DedupeTest(unittest.TestCase):
+    def test_same_session_id_keeps_most_active(self):
+        a = {"session_id": "s1", "phase": "done", "phase_since": "2026-01-01T10:00:00Z"}
+        b = {"session_id": "s1", "phase": "running", "phase_since": "2026-01-01T09:00:00Z"}
+        c = {"session_id": "s1", "phase": "running", "phase_since": "2026-01-01T11:00:00Z"}
+        d = {"session_id": "s2", "phase": "exited", "phase_since": "2026-01-01T08:00:00Z"}
+        e = {"phase": "done"}
+        out = board.dedupe_sessions([a, b, c, d, e])
+        self.assertEqual(len(out), 3)
+        kept = {x.get("session_id"): x for x in out if x.get("session_id")}
+        self.assertIs(kept["s1"], c)
+        self.assertIs(kept["s2"], d)
+
+
 class BoardTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -80,6 +94,7 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(a["items"][2]["text"], "nested sub item with link")
         self.assertEqual(a["items"][0]["group"], "1. Scope")
         self.assertEqual(a["items"][3]["group"], "2. 验证")
+        self.assertEqual([i["level"] for i in a["items"]][:4], [0, 0, 1, 0])
         cur = [i["id"] for i in a["items"] if i["current"]]
         self.assertEqual(cur, ["1.2.1"])
         self.assertEqual(a["progress"], {"done": 2, "total": len(a["items"])})
@@ -88,6 +103,21 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(b["title"], "beta-change")
         self.assertEqual(b["scope"], {"status": None, "review": None})
         self.assertTrue(b["updated_at"].endswith("Z"))
+
+    def test_levels_and_leaf_current(self):
+        txt = ("## G\n- [x] 1.1 a\n\t- [x] 1.1.1 tab child\n- [ ] 1.2 parent\n"
+               "  - [x] 1.2.1 two-space child\n    - [ ] 1.2.1.1 deeper\n  - [ ] 1.2.2 sibling\n- [ ] 1.3 last\n")
+        items = openspec.parse_tasks(txt)
+        self.assertEqual([(i["id"], i["level"]) for i in items],
+                         [("1.1", 0), ("1.1.1", 1), ("1.2", 0), ("1.2.1", 1), ("1.2.1.1", 2),
+                          ("1.2.2", 1), ("1.3", 0)])
+        self.assertEqual([i["id"] for i in items if i["current"]], ["1.2.1.1"])
+        # 父项未完成但有子项：current 取叶子而不是父项；progress 仍按所有条目
+        items = openspec.parse_tasks("- [ ] 1 parent\n    - [ ] 1.1 child\n")
+        self.assertEqual([i["id"] for i in items if i["current"]], ["1.1"])
+        # 整体缩进的文件：最浅为 0 级
+        items = openspec.parse_tasks("  - [ ] a\n    - [ ] b\n")
+        self.assertEqual([i["level"] for i in items], [0, 1])
 
     def test_link_priorities(self):
         res = board.build(self.sessions())

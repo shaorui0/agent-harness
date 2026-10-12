@@ -16,6 +16,9 @@ DEFAULTS = {
     "roots": ["~/work"],      # 扫 .harness/scope/ 的根目录
     "port": 8787,             # 只绑 127.0.0.1
     "scan_interval_s": 300,   # 后台重扫 scope 的间隔
+    "recap_skill": "~/.claude/skills/session_recap/SKILL.md",   # 「Session Recap」框执行的 skill 文本
+    "recap_model": "sonnet",
+    "summary_model": "sonnet",   # 「Claude 梳理的任务」用的模型
     "cloudcli_url": "http://localhost:5173",   # CloudCLI 的访问地址，看板里的入口和「在 CloudCLI 打开」用它
 }
 

@@ -29,8 +29,9 @@ flowchart LR
 |---|---|---|
 | 看所有 session：谁在等我、任务做到哪、还剩哪些 | tracker 看板 | `bin/harness tracker` → <http://127.0.0.1:8787> |
 | 接着某个 session 干：聊天、开 shell、看 git | CloudCLI | <http://localhost:5173>；看板里每个 session 有「在 CloudCLI 打开」按钮 |
-| 在 CloudCLI 里直接看当前 session 的任务和摘要 | Tracker tab | CloudCLI 侧边栏 → Tracker（`bin/harness install` 自动安装插件） |
+| 在 CloudCLI 里直接看当前 session 的任务和子任务完成情况 | Tracker tab | CloudCLI 侧边栏 → Tracker（`bin/harness install` 自动安装插件） |
 | 在终端里看，或者让 AI 看全局 | `tracker show` | `bin/harness tracker show [workspace]` |
+| 重建某个 session 的来龙去脉（做了什么、卡在哪、怎么续跑） | tracker 看板 / Tracker tab | 选中 session → Session Recap 框 →「运行 session_recap」 |
 | 某个 session 没走流程，事后补 spec | skill | `/harness-spec-backfill` |
 | 体检：hook / skill / 插件 / scope 格式 | doctor | `bin/harness doctor` |
 
@@ -120,7 +121,7 @@ bin/harness tracker show     # 终端/AI：markdown 输出，可加 workspace �
 bin/harness tracker scan     # 只重建 scope 快照
 ```
 
-不写任何 scope，没有自动调 LLM 的路径（只有手动点「生成摘要」才调一次）。运行时数据放在 `~/.harness/tracker/`，仓库里只有代码。
+不写任何 scope，没有自动调 LLM 的路径（只有手动点「让 claude 梳理任务」或「运行 session_recap」才调一次）。运行时数据放在 `~/.harness/tracker/`，仓库里只有代码。
 用法、workspace 怎么组织、配合哪些 skill、哪些部件能依赖，见 [tracker/README.md](tracker/README.md)；设计见 [docs/tracker-design.md](docs/tracker-design.md)。
 
 ## 定时收敛

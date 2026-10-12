@@ -256,7 +256,7 @@ server 启动时会起一个后台线程，按 `tracker.scan_interval_s`（默�
 
 ## POST /api/summary  `{"session_id": "..."}`  →  202 `{"pending": true}`
 
-后台线程执行：`session_recap.py` 提取骨架 + 该 session 关联 change 的 tasks.md + diff 统计，拼成 prompt，在隔离 cwd（`~/.harness/tracker/state/sidecar`）里跑 `claude -p --model haiku --no-session-persistence`，超时 60s。同一 session 正在生成时再 POST 直接返回 pending，不重复调用；生成完 60s 内不重复触发（返回缓存）。
+后台线程执行：`session_recap.py` 提取骨架 + 该 session 关联 change 的 tasks.md + diff 统计，拼成 prompt，在隔离 cwd（`~/.harness/tracker/state/sidecar`）里跑 `claude -p --model <tracker.summary_model，缺省 sonnet> --no-session-persistence --setting-sources project`，超时 150s。同一 session 正在生成时再 POST 直接返回 pending，不重复调用；生成完 60s 内不重复触发（返回缓存）。
 
 ## GET /api/summary?session_id=...  →  `{"summary": <Summary> | null, "pending": bool, "error": str | null}`
 
@@ -268,7 +268,7 @@ server 启动时会起一个后台线程，按 `tracker.scan_interval_s`（默�
   "diff_note": "一句话：改了哪些地方",
   "generated_at": "ISO", "source_mtime": "生成时 transcript 的 mtime（ISO）",
   "stale": false,                      // transcript 的 mtime 比 source_mtime 晚 60 秒以上就是 true（读取时现算，不落盘）
-  "model": "haiku"
+  "model": "sonnet"
 }
 ```
 
@@ -291,3 +291,74 @@ server 启动时会起一个后台线程，按 `tracker.scan_interval_s`（默�
 - `url` 来自 `~/.harness/config.yml` 的 `tracker.cloudcli_url`（缺省 `http://localhost:5173`）；配成空字符串则 `links` 为 `{}`。
 - `up`：server 探测 `url/` 的结果（1s 超时，缓存 10s）；`plugin_installed`：`~/.claude-code-ui/plugins/harness-tracker/manifest.json` 是否存在。
 - 前端用它在顶栏显示「CloudCLI」入口，并在 session 详情里给出「在 CloudCLI 打开」链接：`<url>/session/<session_id>`（这是 CloudCLI 自己的路由）。
+
+# v3.2：Status 补全 + Session Recap 框（2026-10-12）—— 字段名不许自行改
+
+## Session 新增字段（/api/board 与 /api/state 的 session 里）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `last_text` | string \| null | session 最近一段 assistant 文字。去掉行首 `#` 和 `**`，保留换行；≤1500 字符，超出截断并加 `…` |
+| `last_tool` | string \| null | 最近一次工具调用的单行描述（现有 last_action 里的工具行）；≤600 字符 |
+| `last_action` | string | 保持不变（兼容）：二者中更新的那个，≤600 字符（原来更短，导致显示被截断） |
+| `recap` | null \| Recap | 缓存里的 recap（见下），读取时现算 `stale` |
+| `recap_pending` | bool | 正在生成 |
+
+Status 的展示：「最近一句话」用 `last_text`（保留换行，超过 6 行折叠，可展开）；「最近动作」用 `last_tool`；若 summary 已生成且有 `now`，再显示「现在在做：<now>」。
+
+## Summary 新增字段
+
+`summary.now`：string \| null。「当前正在做什么」，一句话，由同一次 `claude -p` 生成。旧缓存没有这个字段时按 null 处理。prompt 里要求：done 是已完成并有证据的事，remaining 是还没做的事，now 是此刻正在做的那一件。
+
+## POST /api/recap  `{"session_id": "..."}`  →  202 `{"pending": true}`
+
+手动触发「执行 session_recap skill」。后台线程：
+1. 用 `session_recap.py <transcript_path>`（同目录）提取骨架（timeout 20s；骨架超过 40000 字符时保留头 3000 + 尾 30000）。
+2. 读 skill 文本：路径来自 `~/.harness/config.yml` 的 `tracker.recap_skill`，缺省 `~/.claude/skills/session_recap/SKILL.md`（软链，跟随 skill 的修改）。读不到时用内置的最小说明（七段 briefing 格式 + 硬规则：说要做≠做完、不许编、不贴原文），并在结果里标 `skill_missing: true`。
+3. 拼 prompt：「你正在执行下面这个 skill（session_recap）。skill 里需要你跑 session_recap.py 的步骤已经由系统完成，骨架在后面。严格按 skill 的 Step 3 写 briefing 并遵守硬规则。只输出 briefing 的 markdown，不要寒暄，不要调用任何工具。」+ skill 全文 + 骨架 + session 的 spec（第一条 prompt）与 diff 统计。
+4. `claude -p --model <tracker.recap_model，缺省 sonnet> --no-session-persistence --setting-sources project <prompt>`，cwd 用 config.SIDECAR_CWD，timeout 180s。**必须带 `--setting-sources project`**（否则用户级 hook 会注入输出格式契约，模型不再按 skill 输出）。
+5. 缓存 `~/.harness/tracker/state/recaps.jsonl`，每个 session 保留最新一条。同一 session 生成中再 POST 直接返回 pending；生成完 60 秒内不重复触发。失败只记录 error，不抛异常。
+
+## GET /api/recap?session_id=...  →  `{"recap": Recap | null, "pending": bool, "error": str | null}`
+
+```json
+{"markdown": "## 一句话\n…\n## 续跑指令\n…", "generated_at": "ISO", "source_mtime": "生成时 transcript 的 mtime（ISO）",
+ "stale": false, "model": "sonnet", "skill_missing": false}
+```
+
+`stale` 规则与 summary 相同（transcript 的 mtime 比 source_mtime 晚 60 秒以上）。`/api/board` 在每个 session 上补 `recap` / `recap_pending`（与 summary / summary_pending 同样的方式）。
+
+## UI 约定
+
+- 右栏顺序：头部 → Status → 任务（每个 change 一块）→ Summary → **Session Recap**。
+- Session Recap 块：标题「Session Recap」+ 标签「执行 session_recap skill」；右上按钮「▶ 运行 session_recap」（已有结果时「重新运行」）。点击 → POST，按钮禁用显示「生成中…」，每 3s GET 轮询，最多 240s。
+- 结果渲染：只用 textContent / createElement（**不用 innerHTML**）。`## ` 开头的行渲染为小标题；`- ` / `* ` 开头渲染为列表项；三个反引号围起来的代码块渲染为 `<pre>`，并带一个「复制」按钮（「续跑指令」那段尤其需要）；其余为段落，保留换行。
+- stale 时标黄色「已过期」。
+
+# v3.3：改成「任务 → 子任务」完成情况（2026-10-12）—— 取代 v3.2 里 Status 的展示约定
+
+用户要看的是「这个 session 完成了哪些任务、每个任务里的子任务哪些完成了」，**不关心过程**（最近一句话、最近动作）。所以：
+
+## Summary 新结构（`summary.tasks`）
+
+```json
+{"tasks": [{"title": "跨集群拷贝", "done": true, "subtasks": [{"text": "backup 带数据", "done": true}, {"text": "restore + promote", "done": true}]},
+           {"title": "清理测试环境", "done": false, "subtasks": [{"text": "删 4 个 ns", "done": true}, {"text": "删孤儿 EBS", "done": false}]}],
+ "blocked_on": "在等谁或什么，没有就 null", "diff_note": "一句话", "now": "（保留字段，UI 不再显示）",
+ "done": ["兼容：所有 done=true 的 subtask 文本（无 subtask 的 task 取 title）"], "remaining": ["兼容：所有 done=false 的 subtask 文本（无 subtask 的 task 取 title）"]}
+```
+
+- `tasks` = 人类在这个 session 里提出的、有独立交付意义的事（按人类意图分，不按工具调用分）；`subtasks` = 该任务下的具体步骤。`task.done` = 所有 subtask 都 done（无 subtask 时由模型判断）。**done 必须有 transcript 里的动作证据，「说要做」不算完成**，看不出来的标 false。
+- 若 session 关联了 OpenSpec change，prompt 里带上 tasks.md，要求 `tasks` 的 title 尽量对齐 tasks.md 的分组标题，并补上 tasks.md 里没有、但 session 里实际做了/提出了的任务。
+- 服务端 normalize：`tasks` 缺失（旧缓存）→ 保持 null，前端回退到 done/remaining 平铺显示；`tasks` 存在 → 由它生成 `done` / `remaining` 兼容字段。每个 task 的 subtasks 最多 12 条、tasks 最多 15 条，文本各 ≤120 字。
+
+## Change item 新增 `level`
+
+`items[].level`：int ≥ 0。0 = 直接位于分组下的条目；1 = 缩进一层的子条目，依此类推（openspec.py 已解析缩进子项，现在把层级带出来）。**分组（`group`）= 任务，level 0 条目 = 子任务，level ≥ 1 = 更深一层的子任务。** 没有分组标题的 tasks.md：level 0 条目本身当任务。
+
+## UI（取代 v3.2 的 Status 约定）
+
+右栏顺序：头部（phase、turns、branch、diff、按钮）→ **任务进度（OpenSpec）**：每个 change 一块，树形：分组作为任务行 `[x] 1. 标题  3/3`（所有子任务完成才 `[x]`，否则 `[ ]`），其下缩进显示子任务 `[x]`/`[ ]`，第一个未完成的子任务标「← 正在这条」→ **Claude 梳理**块（标题「Claude 梳理的任务」+ 标签「点按钮才调用」；按钮「↻ 让 claude 梳理任务」，已有结果时「重新梳理」，生成中禁用）：树形显示 `summary.tasks`（任务行 `[x]/[ ]` + `n/m`，子任务缩进；没有 `tasks` 的旧结果回退成平铺的 done/remaining），`blocked_on` 非空时显示「⏸ 在等：…」，下面是 diff_note、生成时间、已过期标签 → **Session Recap** 块 → 最底部一个**默认折叠**的「过程细节」（`<details>`，里面放 `last_text` / `last_tool`，没有就不显示）。
+- **不再单独有 Status 块**，不再显示「最近一句话」「最近动作」「现在在做」（这些只在折叠的过程细节里）。头部的 phase 圆点 + 文案 + 时长保留（要不要介入还是要看它）。
+- 没有关联 change 的 session：不显示 OpenSpec 任务块；「Claude 梳理」块是唯一的任务视图，空状态提示写「点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些」。
+- 只有一个触发按钮（Claude 梳理块里那个），去掉 v3.2 里 Status 右上角的第二个按钮。

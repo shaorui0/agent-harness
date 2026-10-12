@@ -5,6 +5,7 @@
   默认        直接调 server.collect_once() + board.build()
   --from-file 读已保存的 board JSON（离线 / 测试）
   --json      不渲染，直接输出 board JSON
+  --recap     在 recap 行之后打印 session recap 的 markdown 全文（有缓存才有）
 
 退出码：0 正常；2 指定的 workspace 不存在（stderr 列出可选项）。
 """
@@ -14,8 +15,6 @@ import argparse
 import json
 import os
 import sys
-
-FOLD_AFTER = 6  # 已完成项超过这个数就折叠
 
 PHASE_LABEL = {
     "needs_input": "在等你输入",
@@ -62,30 +61,63 @@ def _summary_for(session: dict):
         return None
 
 
-def _render_items(change: dict) -> list[str]:
-    items = change.get("items") or []
-    done = [i for i in items if i.get("done")]
-    fold = len(done) > FOLD_AFTER
-    last_done = done[-1] if fold else None
+def _sub_lines(items: list, base: int = 1) -> list[str]:
     lines = []
-    if fold:
-        lines.append(f"- [x] … 已完成 {len(done) - 1} 项")
     for it in items:
+        pad = "  " * (base + int(it.get("level") or 0))
         if it.get("done"):
-            if fold and it is not last_done:
-                continue
-            lines.append(f"- [x] {it['id']} {it['text']}")
+            lines.append(f"{pad}- [x] {it.get('id', '')} {it['text']}".replace("[x]  ", "[x] "))
         else:
             mark = "  ← 正在这条" if it.get("current") else ""
-            lines.append(f"- [ ] {it['id']} {it['text']}{mark}")
+            lines.append(f"{pad}- [ ] {it.get('id', '')} {it['text']}{mark}".replace("[ ]  ", "[ ] "))
+    return lines
+
+
+def _render_items(change: dict) -> list[str]:
+    """分组 = 任务（全部完成则折叠成一行），条目 = 子任务（按 level 缩进）。"""
+    groups: list[tuple] = []  # (group 名或 None, [items])
+    for it in change.get("items") or []:
+        g = it.get("group")
+        if groups and groups[-1][0] == g and g is not None:
+            groups[-1][1].append(it)
+        elif g is None and groups and groups[-1][0] is None:
+            groups[-1][1].append(it)
+        else:
+            groups.append((g, [it]))
+    lines = []
+    for g, its in groups:
+        if g is None:  # 无分组：level 0 条目本身就是任务
+            lines += _sub_lines(its, 0)
+            continue
+        n = sum(1 for i in its if i.get("done"))
+        ok = n == len(its)
+        lines.append(f"- [{'x' if ok else ' '}] {g} ({n}/{len(its)})")
+        if not ok:
+            lines += _sub_lines(its)
+    return lines
+
+
+def _render_task_tree(tasks: list) -> list[str]:
+    lines = []
+    for t in tasks:
+        subs = t.get("subtasks") or []
+        n = sum(1 for x in subs if x.get("done"))
+        ok = bool(t.get("done")) and n == len(subs)
+        cnt = f" ({n}/{len(subs)})" if subs else ""
+        lines.append(f"- [{'x' if ok else ' '}] {t.get('title', '?')}{cnt}")
+        if not ok:
+            lines += [f"  - [{'x' if x.get('done') else ' '}] {x.get('text', '')}" for x in subs]
     return lines
 
 
 def _render_summary(sm: dict) -> list[str]:
-    head = "摘要（已过期）：" if sm.get("stale") else "摘要："
+    head = "Claude 梳理（已过期）：" if sm.get("stale") else "Claude 梳理："
     lines = [head]
-    lines += [f"- [x] {t}" for t in sm.get("done") or []]
-    lines += [f"- [ ] {t}" for t in sm.get("remaining") or []]
+    if sm.get("tasks"):
+        lines += _render_task_tree(sm["tasks"])
+    else:
+        lines += [f"- [x] {t}" for t in sm.get("done") or []]
+        lines += [f"- [ ] {t}" for t in sm.get("remaining") or []]
     if sm.get("blocked_on"):
         lines.append(f"在等：{sm['blocked_on']}")
     if sm.get("diff_note"):
@@ -93,7 +125,17 @@ def _render_summary(sm: dict) -> list[str]:
     return lines
 
 
-def _render_session(s: dict, changes: dict) -> list[str]:
+def _render_recap(rc: dict, full: bool) -> list[str]:
+    ts = str(rc.get("generated_at") or "")
+    hhmm = ts[11:16] if len(ts) >= 16 else "?"
+    mark = "，已过期" if rc.get("stale") else ""
+    out = [f"recap：已生成 {hhmm}{mark}（用 --recap 打印全文）"]
+    if full and rc.get("markdown"):
+        out.append(rc["markdown"].rstrip())
+    return out
+
+
+def _render_session(s: dict, changes: dict, full_recap: bool = False) -> list[str]:
     cids = [c for c in s.get("change_ids") or [] if c in changes]
     prog = ", ".join(f"{changes[c]['progress']['done']}/{changes[c]['progress']['total']}" for c in cids)
     label = PHASE_LABEL.get(s.get("phase"), s.get("phase", "?"))
@@ -104,8 +146,7 @@ def _render_session(s: dict, changes: dict) -> list[str]:
     if prog:
         title += f" · {prog}"
     out = [title]
-    if s.get("last_action"):
-        out.append(f"最后动作：{s['last_action']}")
+    sm = _summary_for(s)
     if not cids:
         out.append("无 spec")
     for c in cids:
@@ -114,15 +155,16 @@ def _render_session(s: dict, changes: dict) -> list[str]:
         suffix = f"，关联依据 {src}" if src else ""
         out.append(f"change {ch['id']} ({ch['progress']['done']}/{ch['progress']['total']}){suffix}")
         out += _render_items(ch)
-    sm = _summary_for(s)
     if sm:
         out += _render_summary(sm)
+    if s.get("recap"):
+        out += _render_recap(s["recap"], full_recap)
     if s.get("resume_cmd"):
         out.append(f"resume: {s['resume_cmd']}")
     return out
 
 
-def render(board: dict) -> str:
+def render(board: dict, full_recap: bool = False) -> str:
     wss = board.get("workspaces", [])
     sessions = [s for w in wss for s in w.get("sessions", [])]
     count = {p: sum(1 for s in sessions if s.get("phase") == p) for p in PHASES}
@@ -136,7 +178,7 @@ def render(board: dict) -> str:
         if not w.get("sessions"):
             out.append("（无 session）")
         for s in w.get("sessions", []):
-            out += _render_session(s, changes)
+            out += _render_session(s, changes, full_recap)
             out.append("")
         linked = {c for s in w.get("sessions", []) for c in s.get("change_ids") or []}
         orphan = [c for c in w.get("changes", []) if c["id"] not in linked]
@@ -159,6 +201,7 @@ def main(argv=None) -> int:
     ap.add_argument("workspace", nargs="?", help="只看这个 workspace（按 name 匹配）")
     ap.add_argument("--json", action="store_true", help="直接输出 board JSON")
     ap.add_argument("--from-file", metavar="PATH", help="读已保存的 board JSON，不采集")
+    ap.add_argument("--recap", action="store_true", help="打印 session recap 的 markdown 全文（有缓存才有）")
     a = ap.parse_args(argv)
 
     board = load_board(a.workspace, a.from_file)
@@ -173,7 +216,7 @@ def main(argv=None) -> int:
         json.dump(board, sys.stdout, ensure_ascii=False, indent=2)
         print()
     else:
-        sys.stdout.write(render(board))
+        sys.stdout.write(render(board, a.recap))
     return 0
 
 

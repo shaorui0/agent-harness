@@ -246,9 +246,33 @@ def _ts(v) -> float:
         return 0.0
 
 
+_PHASE_PRI = {"needs_input": 0, "running": 1, "stale": 2, "done": 3, "exited": 4}
+
+
+def dedupe_sessions(sessions) -> list[dict]:
+    """同一个 session_id 可能有多个进程文件（例如 --resume 又起了一个进程）。看板上一个 session 只能有一行：
+    保留最「活跃」的那条（needs_input > running > stale > done > exited），同级取 phase_since 最新的。"""
+    best: dict[str, dict] = {}
+    out_no_id: list[dict] = []
+    for s in sessions or []:
+        sid = s.get("session_id")
+        if not sid:
+            out_no_id.append(s)
+            continue
+        cur = best.get(sid)
+        if cur is None:
+            best[sid] = s
+            continue
+        a = (_PHASE_PRI.get(s.get("phase"), 9), s.get("phase_since") or "")
+        b = (_PHASE_PRI.get(cur.get("phase"), 9), cur.get("phase_since") or "")
+        if a[0] < b[0] or (a[0] == b[0] and a[1] > b[1]):
+            best[sid] = s
+    return list(best.values()) + out_no_id
+
+
 def build(sessions, ws: str | None = None) -> dict:
     groups: dict[str, list[dict]] = {}
-    for s in sessions or []:
+    for s in dedupe_sessions(sessions):
         n = _normalize(s)
         groups.setdefault(workspace_root(n.get("cwd")), []).append(n)
 

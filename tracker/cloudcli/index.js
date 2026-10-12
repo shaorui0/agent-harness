@@ -70,6 +70,7 @@ export function mount(container, api) {
   const state = {
     board: null, error: null, pick: null, // pick: session id chosen from the overview
     summaries: {}, pending: {}, sumError: {},
+    recaps: {}, recapPending: {}, recapError: {}, expanded: {},
     timers: new Set(), alive: true, ctx: api.context || {},
   };
   const root = h('div');
@@ -130,6 +131,46 @@ export function mount(container, api) {
     }
   }
 
+  function stopRecap(sid) {
+    const t = state.recapPending[sid];
+    if (t) { clearInterval(t.timer); state.timers.delete(t.timer); }
+    delete state.recapPending[sid];
+  }
+
+  async function recapPollOnce(sid) {
+    try {
+      const r = await api.rpc('GET', '/api/recap?session_id=' + encodeURIComponent(sid));
+      if (!state.alive) return;
+      if (r.recap) state.recaps[sid] = r.recap;
+      if (r.error) state.recapError[sid] = r.error; else delete state.recapError[sid];
+      if (!r.pending) stopRecap(sid);
+    } catch (e) {
+      state.recapError[sid] = String((e && e.message) || e);
+      stopRecap(sid);
+    }
+    render();
+  }
+
+  async function runRecap(sid) {
+    if (state.recapPending[sid]) return;
+    delete state.recapError[sid];
+    const t = { n: 0 };
+    t.timer = setInterval(() => {
+      if (++t.n > 80) { stopRecap(sid); state.recapError[sid] = '生成超时（240s）'; render(); return; }
+      recapPollOnce(sid);
+    }, 3000);
+    state.timers.add(t.timer);
+    state.recapPending[sid] = t;
+    render();
+    try {
+      await api.rpc('POST', '/api/recap', { session_id: sid });
+    } catch (e) {
+      stopRecap(sid);
+      state.recapError[sid] = String((e && e.message) || e);
+      render();
+    }
+  }
+
   function section(title, ...kids) {
     return h('div', { style: 'margin-top:16px' },
       h('div', { style: 'font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px' }, title),
@@ -142,53 +183,203 @@ export function mount(container, api) {
       h('span', { style: `width:9px;height:9px;border-radius:50%;background:${color};display:inline-block` }), label);
   }
 
-  function checklist(ch) {
-    const wrap = h('div', { style: 'margin-bottom:12px' });
-    const p = ch.progress || {};
-    wrap.append(h('div', { style: 'font-weight:600;margin-bottom:4px' }, ch.title || ch.id,
-      h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, `${p.done || 0}/${p.total || 0}`)));
-    let lastGroup = null;
-    const ul = h('div', { style: 'font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7' });
-    for (const it of ch.items || []) {
-      if (it.group && it.group !== lastGroup) {
-        lastGroup = it.group;
-        ul.append(h('div', { style: 'color:var(--mut);margin-top:6px;font-family:inherit' }, it.group));
-      }
-      const style = it.done ? 'color:var(--mut)' : it.current ? 'color:var(--warn);font-weight:600' : '';
-      ul.append(h('div', { style },
-        `${it.done ? '[x]' : '[ ]'} `, it.id ? it.id + ' ' : '', it.text, it.current ? '  ← 正在这条' : ''));
+  const MONO = 'font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7';
+
+  // One task row (group / task): "[x] title  n/m", children indented. rows: [{done,text,level,current}]
+  function taskRow(title, done, count, rows) {
+    const wrap = h('div', { style: 'margin-top:4px' });
+    const sum = h('div', { style: MONO + ';font-weight:600' + (done ? ';color:var(--mut)' : '') },
+      `${done ? '[x]' : '[ ]'} ${title}`,
+      count ? h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, count) : null);
+    if (done && rows.length) {
+      const d = h('details', null, h('summary', { style: 'cursor:pointer;list-style:none' }, sum));
+      for (const r of rows) d.append(subRow(r));
+      wrap.append(d);
+    } else {
+      wrap.append(sum);
+      for (const r of rows) wrap.append(subRow(r));
     }
-    wrap.append(ul);
     return wrap;
   }
 
-  function summaryBlock(s) {
+  function subRow(r) {
+    const style = MONO + `;margin-left:${14 + 14 * (r.level || 0)}px` +
+      (r.done ? ';color:var(--mut)' : r.current ? ';color:var(--warn);font-weight:600' : '');
+    return h('div', { style }, `${r.done ? '[x]' : '[ ]'} `, r.id ? r.id + ' ' : '', r.text, r.current ? '  ← 正在这条' : '');
+  }
+
+  // OpenSpec change -> tree: group = task, item = subtask (level = nesting); ungrouped level-0 item = task.
+  function changeTree(ch) {
+    const wrap = h('div', { style: 'margin-bottom:12px' });
+    const p = ch.progress || {};
+    wrap.append(h('div', { style: 'font-weight:600;margin-bottom:2px' }, ch.title || ch.id,
+      h('span', { style: 'color:var(--mut);font-weight:400;margin-left:8px' }, `${p.done || 0}/${p.total || 0}`)));
+    const groups = [];
+    for (const it of ch.items || []) {
+      const g = it.group || null;
+      const last = groups[groups.length - 1];
+      if (last && last.g === g) last.items.push(it); else groups.push({ g, items: [it] });
+    }
+    for (const { g, items } of groups) {
+      if (g === null) { for (const it of items) wrap.append(subRow({ ...it, level: it.level || 0 })); continue; }
+      const n = items.filter((x) => x.done).length;
+      wrap.append(taskRow(g, n === items.length, `${n}/${items.length}`, items));
+    }
+    return wrap;
+  }
+
+  // summary.tasks tree; null tasks -> flat done/remaining fallback.
+  function claudeTree(sum) {
+    const out = h('div');
+    if (Array.isArray(sum.tasks)) {
+      for (const t of sum.tasks) {
+        const subs = t.subtasks || [];
+        const n = subs.filter((x) => x.done).length;
+        const done = !!t.done && n === subs.length;
+        out.append(taskRow(t.title || '?', done, subs.length ? `${n}/${subs.length}` : '',
+          subs.map((x) => ({ done: !!x.done, text: x.text, level: 0 }))));
+      }
+      return out;
+    }
+    for (const [arr, done] of [[sum.done, true], [sum.remaining, false]]) {
+      for (const t of arr || []) out.append(subRow({ done, text: t, level: 0 }));
+    }
+    return out;
+  }
+
+  const BTN = 'cursor:pointer;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font-size:12.5px';
+  const PRE = 'margin:6px 0;padding:8px 10px;background:var(--card);border:1px solid var(--line);border-radius:6px;font:12px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;overflow-x:auto';
+
+  function sectionHead(title, ...right) {
+    return h('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:16px;margin-bottom:6px' },
+      h('div', { style: 'font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em' }, title),
+      h('div', { style: 'display:flex;align-items:center;gap:8px' }, ...right));
+  }
+
+  function claudeBlock(s) {
     const sid = s.session_id;
     const sum = state.summaries[sid] || s.summary;
     const pending = !!state.pending[sid] || s.summary_pending;
-    const btn = h('button', {
-      style: 'cursor:pointer;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font-size:12.5px',
-      onclick: () => generate(sid),
-    }, pending ? '生成中…' : '↻ 生成摘要');
+    const btn = h('button', { style: BTN, onclick: () => generate(sid) },
+      pending ? '生成中…' : sum ? '重新梳理' : '↻ 让 claude 梳理任务');
     if (pending) btn.disabled = true;
-    const box = section('Summary', btn);
+    const box = h('div', null, sectionHead('Claude 梳理的任务',
+      h('span', { style: 'color:var(--mut);font-size:12px' }, '点按钮才调用'), btn));
     if (state.sumError[sid]) box.append(h('div', { style: 'color:#dc2626;margin-top:6px' }, state.sumError[sid]));
     if (!sum) {
-      box.append(h('div', { style: 'color:var(--mut);margin-top:6px' }, '尚未生成。摘要只在点按钮时生成。'));
+      box.append(h('div', { style: 'color:var(--mut)' }, '点按钮：让 claude 根据这个 session 梳理出做了哪些任务、每个任务的子任务完成了哪些。'));
       return box;
     }
-    if (sum.stale) {
-      box.append(h('span', { style: 'margin-left:8px;color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
-    }
-    const list = (label, arr, mark) => arr && arr.length
-      ? h('div', { style: 'margin-top:8px' }, h('div', { style: 'font-weight:600' }, label),
-        ...arr.map((t) => h('div', { style: 'margin-left:4px' }, `${mark} ${t}`)))
-      : null;
-    box.append(list('已完成', sum.done, '[x]'), list('还剩', sum.remaining, '[ ]'));
-    if (sum.blocked_on) box.append(h('div', { style: 'margin-top:8px;color:var(--warn)' }, '卡在：' + sum.blocked_on));
+    if (sum.stale) box.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
+    box.append(claudeTree(sum));
+    if (sum.blocked_on) box.append(h('div', { style: 'margin-top:8px;padding:4px 8px;border-radius:6px;background:var(--card);border:1px solid var(--warn);color:var(--warn)' }, '⏸ 在等：' + sum.blocked_on));
     if (sum.diff_note) box.append(h('div', { style: 'margin-top:8px;color:var(--mut)' }, sum.diff_note));
     box.append(h('div', { style: 'margin-top:6px;color:var(--mut);font-size:11.5px' },
       `生成于 ${sum.generated_at || '?'}${sum.model ? ' · ' + sum.model : ''}`));
+    return box;
+  }
+
+  // Collapsed by default: the only place last_text / last_tool show up.
+  function processDetails(s) {
+    const lastText = s.last_text || (!s.last_tool ? s.last_action : null);
+    if (!lastText && !s.last_tool) return null;
+    const d = h('details', { style: 'margin-top:16px' },
+      h('summary', { style: 'cursor:pointer;font-size:12px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em' }, '过程细节'));
+    if (lastText) {
+      d.append(h('div', { style: 'color:var(--mut);font-size:12px;margin-top:6px' }, '最近一句话'),
+        h('div', { style: 'white-space:pre-wrap;word-break:break-word' }, lastText));
+    }
+    if (s.last_tool) {
+      d.append(h('div', { style: 'color:var(--mut);font-size:12px;margin-top:8px' }, '最近动作'),
+        h('div', { style: 'white-space:pre-wrap;word-break:break-word;' + MONO }, s.last_tool));
+    }
+    return d;
+  }
+
+  function copyBtn(text) {
+    const b = h('button', { style: BTN + ';padding:2px 8px;font-size:11.5px' }, '复制');
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(text); b.textContent = '已复制'; } catch (e) { b.textContent = '复制失败'; }
+      setTimeout(() => { b.textContent = '复制'; }, 1500);
+    });
+    return b;
+  }
+
+  // Inline markdown: **bold** and `code` only; everything else is plain text. No innerHTML.
+  function inline(text) {
+    const frag = document.createDocumentFragment();
+    for (const part of String(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/)) {
+      if (!part) continue;
+      if (/^\*\*[^*\n]+\*\*$/.test(part)) {
+        const el = document.createElement('strong'); el.textContent = part.slice(2, -2); frag.append(el);
+      } else if (/^`[^`\n]+`$/.test(part)) {
+        const el = document.createElement('code');
+        el.style.cssText = 'font:12px ui-monospace,Menlo,monospace;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 4px;word-break:break-all;white-space:pre-wrap';
+        el.textContent = part.slice(1, -1); frag.append(el);
+      } else frag.append(document.createTextNode(part));
+    }
+    return frag;
+  }
+
+  // Minimal markdown: "## " heading, "- "/"* "/"1. " list, ``` fenced code (no inline inside), paragraphs.
+  function renderMd(md) {
+    const out = h('div');
+    const lines = String(md || '').split('\n');
+    let para = [];
+    const flush = () => {
+      if (para.length) {
+        const p = h('div', { style: 'white-space:pre-wrap;word-break:break-word;margin:4px 0' });
+        para.forEach((l, i) => { if (i) p.append('\n'); p.append(inline(l)); });
+        out.append(p);
+      }
+      para = [];
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      let m;
+      if (/^\s*```/.test(ln)) {
+        flush();
+        const code = [];
+        for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]);
+        const text = code.join('\n');
+        out.append(h('div', { style: 'position:relative' },
+          h('pre', { style: PRE }, text),
+          h('div', { style: 'position:absolute;top:10px;right:6px' }, copyBtn(text))));
+      } else if (/^##+\s/.test(ln)) {
+        flush();
+        out.append(h('div', { style: 'font-weight:700;margin-top:12px' }, inline(ln.replace(/^#+\s*/, ''))));
+      } else if ((m = ln.match(/^(\s*)([-*]|\d+[.)])\s+(.*)$/))) {
+        flush();
+        const bullet = /\d/.test(m[2]) ? m[2] : '•';
+        const indent = 4 + Math.min(m[1].length, 8) * 4;
+        out.append(h('div', { style: `margin:2px 0 2px ${indent}px;padding-left:18px;text-indent:-18px;white-space:pre-wrap;word-break:break-word` }, bullet + ' ', inline(m[3])));
+      } else if (!ln.trim()) {
+        flush();
+      } else {
+        para.push(ln);
+      }
+    }
+    flush();
+    return out;
+  }
+
+  function recapBlock(s) {
+    const sid = s.session_id;
+    const rc = state.recaps[sid] || s.recap;
+    const pending = !!state.recapPending[sid] || s.recap_pending;
+    const btn = h('button', { style: BTN, onclick: () => runRecap(sid) }, pending ? '生成中…' : rc ? '重新运行' : '▶ 运行 session_recap');
+    if (pending) btn.disabled = true;
+    const box = h('div', null, sectionHead('Session Recap',
+      h('span', { style: 'color:var(--mut);font-size:12px' }, '执行 session_recap skill'), btn));
+    if (state.recapError[sid]) box.append(h('div', { style: 'color:#dc2626;margin-top:6px' }, state.recapError[sid]));
+    if (!rc) {
+      box.append(h('div', { style: 'color:var(--mut)' }, '尚未生成。只在点按钮时执行（约 1-3 分钟）。'));
+      return box;
+    }
+    if (rc.stale) box.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
+    if (rc.skill_missing) box.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '未找到 session_recap skill，使用了内置的最小说明'));
+    box.append(renderMd(rc.markdown),
+      h('div', { style: 'margin-top:6px;color:var(--mut);font-size:11.5px' }, `生成于 ${rc.generated_at || '?'}${rc.model ? ' · ' + rc.model : ''}`));
     return box;
   }
 
@@ -201,13 +392,11 @@ export function mount(container, api) {
         phaseBadge(s),
         s.phase_age_s != null ? h('span', { style: 'color:var(--mut)' }, `持续 ${fmtAge(s.phase_age_s)}`) : null,
         s.branch ? h('span', null, '分支 ' + s.branch) : null,
-        d.files_changed != null ? h('span', null, `diff ${d.files_changed} 文件 +${d.insertions || 0} / −${d.deletions || 0}`) : null),
-      s.last_action ? h('div', { style: 'margin-top:6px;color:var(--mut)' }, '最近：' + s.last_action) : null);
+        d.files_changed != null ? h('span', null, `diff ${d.files_changed} 文件 +${d.insertions || 0} / −${d.deletions || 0}`) : null));
     const ids = s.change_ids || [];
     const changes = ids.map((id) => (ws.changes || []).find((c) => c.id === id)).filter(Boolean);
-    if (changes.length) out.append(section('任务清单', ...changes.map(checklist)));
-    else out.append(section('任务清单', h('div', { style: 'color:var(--mut)' }, '无 spec（该 session 没有关联的 OpenSpec change）。')));
-    out.append(summaryBlock(s));
+    if (changes.length) out.append(section('任务进度（OpenSpec）', ...changes.map(changeTree)));
+    out.append(claudeBlock(s), recapBlock(s), processDetails(s));
     if (s.resume_cmd) {
       out.append(section('Resume', h('code', { style: 'display:block;padding:6px 8px;background:var(--card);border:1px solid var(--line);border-radius:6px;font-size:12px;overflow-x:auto;white-space:nowrap' }, s.resume_cmd)));
     }
@@ -224,7 +413,7 @@ export function mount(container, api) {
     }, phaseBadge(s), h('span', { style: 'flex:1' }, s.name || s.session_id),
       s.phase_age_s != null ? h('span', { style: 'color:var(--mut);font-size:12px' }, fmtAge(s.phase_age_s)) : null));
     out.append(section('Sessions', rows.length ? rows : h('div', { style: 'color:var(--mut)' }, '无 session')));
-    const chs = (ws.changes || []).map((c) => checklist(c));
+    const chs = (ws.changes || []).map((c) => changeTree(c));
     if (chs.length) out.append(section('Changes', ...chs));
     return out;
   }

@@ -51,7 +51,7 @@ def parse_proposal(text: str) -> tuple[str | None, str]:
 
 
 def parse_tasks(text: str) -> list[dict]:
-    items, group, in_code = [], None, False
+    items, indents, group, in_code = [], [], None, False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
             in_code = not in_code
@@ -73,12 +73,33 @@ def parse_tasks(text: str) -> list[dict]:
         else:
             iid, text_ = str(len(items) + 1), raw
         items.append({"id": iid, "text": _inline(text_), "done": m.group(2) != " ",
-                      "current": False, "group": group})
-    for it in items:
-        if not it["done"]:
-            it["current"] = True
+                      "current": False, "group": group, "level": 0})
+        indents.append(_indent_width(m.group(1)))
+    _assign_levels(items, indents)
+    for i, it in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        is_leaf = not (nxt and nxt["group"] == it["group"] and nxt["level"] > it["level"])
+        if is_leaf and not it["done"]:
+            it["current"] = True    # 第一个未完成的叶子
             break
     return items
+
+
+def _indent_width(ws: str) -> int:
+    return len(ws.replace("\t", "    "))
+
+
+def _assign_levels(items: list[dict], indents: list[int]) -> None:
+    """按缩进栈算层级：最浅缩进为 0 级，每多一个更深的缩进档 +1（制表符/2/4 空格混用容错）。"""
+    if not items:
+        return
+    stack = [min(indents)]
+    for it, ind in zip(items, indents):
+        while stack and stack[-1] > ind:
+            stack.pop()
+        if not stack or stack[-1] < ind:
+            stack.append(ind)
+        it["level"] = len(stack) - 1
 
 
 def _latest_mtime(d: Path) -> float:

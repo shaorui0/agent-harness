@@ -56,9 +56,21 @@
       "generated_at": "2026-10-12T09:40:00Z",
       "source_mtime": "2026-10-12T09:30:00Z",
       "stale": true,
-      "model": "haiku"
+      "model": "sonnet",
+      "now": "等你确认测试环境清理脚本"
      },
-     "summary_pending": false
+     "summary_pending": false,
+     "last_text": "两个核心场景已经跑通。\n清理脚本已写好，但会删除测试环境的资源，需要你确认后再执行。\n确认命令：./cleanup-test-env.sh --dry-run",
+     "last_tool": "Write: scripts/cleanup-test-env.sh",
+     "recap": {
+      "markdown": "## 一句话\n把备份收敛成 copy 和 pointer 两种模式，核心场景已跑通。\n\n## 已经落地的\n- 两个核心场景通过 API 实测\n- 最终镜像已部署，代码已推到远端\n\n## 续跑指令\n```\ncd /path/to/project && claude --resume <session-id>\n```\n",
+      "generated_at": "2026-10-12T09:35:00Z",
+      "source_mtime": "2026-10-12T09:30:00Z",
+      "stale": true,
+      "model": "sonnet",
+      "skill_missing": true
+     },
+     "recap_pending": false
     },
     {
      "session_id": "aaaa1111-0000-4000-8000-000000000002",
@@ -89,7 +101,11 @@
      },
      "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000002",
      "summary": null,
-     "summary_pending": false
+     "summary_pending": false,
+     "last_text": "先看了现有的冷却逻辑，发现缩容和扩容共用同一个计时器。\n计划：\n1. 把两个方向的计时器拆开\n2. 补一个回归测试，覆盖抖动场景\n3. 跑完整测试集\n4. 对比改动前后的扩缩次数\n目前第 1 步已完成，正在跑第 2 步写好的测试。\n如果测试通过，再做第 3 步；失败的话先看是不是计时器初始化顺序的问题。\n另外注意：默认冷却时间 300 秒没有改。",
+     "last_tool": "Bash: pytest tests/test_cooldown.py -k flapping -x --maxfail=1",
+     "recap": null,
+     "recap_pending": false
     },
     {
      "session_id": "aaaa1111-0000-4000-8000-000000000003",
@@ -116,7 +132,11 @@
      "change_source": {},
      "resume_cmd": "cd /Users/me/work/infra && claude --resume aaaa1111-0000-4000-8000-000000000003",
      "summary": null,
-     "summary_pending": false
+     "summary_pending": false,
+     "last_text": "结论：延迟来自后端处理，不是网络。\n分段耗时显示连接阶段稳定在 5ms 以内，响应阶段在高峰期明显变长。",
+     "last_tool": "Read: notes/latency-breakdown.md",
+     "recap": null,
+     "recap_pending": false
     }
    ],
    "changes": [
@@ -134,63 +154,72 @@
        "text": "精简成 copy / pointer 两种模式",
        "done": true,
        "current": false,
-       "group": "1. 范围"
+       "group": "1. 范围",
+       "level": 0
       },
       {
        "id": "1.2",
        "text": "数据第二份放进备份自己的目录",
        "done": true,
        "current": false,
-       "group": "1. 范围"
+       "group": "1. 范围",
+       "level": 0
       },
       {
        "id": "2.1",
        "text": "跨集群拷贝实测",
        "done": true,
        "current": false,
-       "group": "2. 验证"
+       "group": "2. 验证",
+       "level": 0
       },
       {
        "id": "2.2",
        "text": "灾难恢复实测",
        "done": true,
        "current": false,
-       "group": "2. 验证"
+       "group": "2. 验证",
+       "level": 0
       },
       {
        "id": "3.1",
        "text": "镜像改走 CI 构建",
        "done": true,
        "current": false,
-       "group": "3. 交付"
+       "group": "3. 交付",
+       "level": 0
       },
       {
        "id": "3.2",
        "text": "用户文档 QUICKSTART / RUNBOOK",
        "done": true,
        "current": false,
-       "group": "3. 交付"
+       "group": "3. 交付",
+       "level": 0
       },
       {
        "id": "3.3",
        "text": "保留期改成 72h（只改配置）",
        "done": true,
        "current": false,
-       "group": "3. 交付"
+       "group": "3. 交付",
+       "level": 0
       },
       {
        "id": "4.1",
        "text": "清理测试环境",
        "done": false,
        "current": true,
-       "group": "4. 收尾"
+       "group": "4. 收尾",
+       "level": 0
       },
       {
        "id": "4.2",
        "text": "你本人手测一遍",
        "done": false,
        "current": false,
-       "group": "4. 收尾"
+       "group": "4. 收尾",
+       "level": 0
       }
      ],
      "proposal": "备份只保留 copy 与 pointer 两种模式……",
@@ -208,8 +237,8 @@
      "title": "扩缩容冷却时间",
      "path": "openspec/changes/autoscaler-cooldown",
      "progress": {
-      "done": 2,
-      "total": 6
+      "done": 3,
+      "total": 8
      },
      "items": [
       {
@@ -217,42 +246,64 @@
        "text": "定义冷却参数",
        "done": true,
        "current": false,
-       "group": "实现"
+       "group": "实现",
+       "level": 0
       },
       {
        "id": "2",
        "text": "加冷却判断",
        "done": true,
        "current": false,
-       "group": "实现"
+       "group": "实现",
+       "level": 0
       },
       {
        "id": "3",
        "text": "单测覆盖边界",
        "done": false,
        "current": true,
-       "group": "实现"
+       "group": "实现",
+       "level": 0
+      },
+      {
+       "id": "3.1",
+       "text": "冷却期内重复触发",
+       "done": true,
+       "current": false,
+       "group": "实现",
+       "level": 1
+      },
+      {
+       "id": "3.2",
+       "text": "冷却参数为 0",
+       "done": false,
+       "current": false,
+       "group": "实现",
+       "level": 1
       },
       {
        "id": "4",
        "text": "文档",
        "done": false,
        "current": false,
-       "group": "实现"
+       "group": "实现",
+       "level": 0
       },
       {
        "id": "5",
        "text": "预发验证",
        "done": false,
        "current": false,
-       "group": "验证"
+       "group": "验证",
+       "level": 0
       },
       {
        "id": "6",
        "text": "灰度",
        "done": false,
        "current": false,
-       "group": "验证"
+       "group": "验证",
+       "level": 0
       }
      ],
      "proposal": "防止扩缩容抖动……",
@@ -293,7 +344,11 @@
      "change_source": {},
      "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000001",
      "summary": null,
-     "summary_pending": true
+     "summary_pending": true,
+     "last_text": null,
+     "last_tool": "Bash: npm test -- --runInBand --testPathPattern='auth/(session|token|middleware)' --coverage --coverageReporters=text-summary --verbose --detectOpenHandles --forceExit --silent=false --bail --testTimeout=120000 --reporters=default --reporters=jest-junit --outputFile=reports/auth-junit.xml --ci --colors=false --maxWorkers=2 --logHeapUsage --no-cache --watchAll=false --findRelatedTests src/auth/session.ts src/auth/token.ts src/auth/middleware.ts src/auth/helpers/refresh.ts src/auth/helpers/revoke.ts（运行中 2 小时无输出）",
+     "recap": null,
+     "recap_pending": false
     },
     {
      "session_id": "bbbb2222-0000-4000-8000-000000000002",
@@ -319,8 +374,64 @@
      "change_ids": [],
      "change_source": {},
      "resume_cmd": "cd /Users/me/work/webapp && claude --resume bbbb2222-0000-4000-8000-000000000002",
-     "summary": null,
-     "summary_pending": false
+     "summary": {
+      "tasks": [
+       {
+        "title": "重写快速上手部分",
+        "done": true,
+        "subtasks": [
+         {
+          "text": "补充安装步骤",
+          "done": true
+         },
+         {
+          "text": "更新示例命令",
+          "done": true
+         }
+        ]
+       },
+       {
+        "title": "校对文档链接",
+        "done": false,
+        "subtasks": [
+         {
+          "text": "检查站内链接是否有效",
+          "done": true
+         },
+         {
+          "text": "替换已失效的外部链接",
+          "done": false
+         }
+        ]
+       },
+       {
+        "title": "补充常见问题",
+        "done": false,
+        "subtasks": []
+       }
+      ],
+      "blocked_on": null,
+      "diff_note": "只改了 README.md，一个提交",
+      "done": [
+       "补充安装步骤",
+       "更新示例命令",
+       "检查站内链接是否有效"
+      ],
+      "remaining": [
+       "替换已失效的外部链接",
+       "补充常见问题"
+      ],
+      "now": "（保留字段，UI 不显示）",
+      "generated_at": "2026-10-12T04:50:00Z",
+      "source_mtime": "2026-10-12T04:45:00Z",
+      "stale": false,
+      "model": "sonnet"
+     },
+     "summary_pending": false,
+     "last_text": "README 已更新，补充了安装步骤。",
+     "last_tool": "Edit: README.md",
+     "recap": null,
+     "recap_pending": false
     }
    ],
    "changes": []

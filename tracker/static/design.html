@@ -1,0 +1,312 @@
+<title>Tracker Design</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--ink:#1d2330;--muted:#677084;--line:#e3e6ec;--accent:#2f6fec;--accent-soft:#e8f0fe;
+  --ok:#1f9d55;--ok-soft:#e5f6ec;--warn:#c27c0e;--warn-soft:#fdf3e1;--bad:#d64545;--bad-soft:#fde8e8;--idle:#8a93a5;
+  --code:#f1f3f6;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12151b;--panel:#1a1e26;--ink:#e6e9ef;--muted:#98a1b3;--line:#2a303b;--accent:#6b9bff;--accent-soft:#1e2a44;
+  --ok:#4cc38a;--ok-soft:#173326;--warn:#e0a43c;--warn-soft:#3a2d14;--bad:#ef6b6b;--bad-soft:#3d1c1c;--idle:#6f788a;--code:#232833;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12151b;--panel:#1a1e26;--ink:#e6e9ef;--muted:#98a1b3;--line:#2a303b;--accent:#6b9bff;--accent-soft:#1e2a44;
+  --ok:#4cc38a;--ok-soft:#173326;--warn:#e0a43c;--warn-soft:#3a2d14;--bad:#ef6b6b;--bad-soft:#3d1c1c;--idle:#6f788a;--code:#232833;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;padding:0 16px}
+main{max-width:1180px;margin:0 auto;padding-block:28px 80px}
+h1{font-size:26px;margin:0 0 4px}
+h2{font-size:19px;margin:44px 0 10px;padding-top:6px;border-top:1px solid var(--line)}
+h3{font-size:15px;margin:18px 0 6px}
+p{margin:6px 0}
+.lead{color:var(--muted);font-size:15px}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+code{background:var(--code);padding:1px 5px;border-radius:4px}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+nav.toc a{font-size:12.5px;color:var(--accent);text-decoration:none;background:var(--accent-soft);padding:3px 9px;border-radius:999px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;background:var(--panel)}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{background:var(--code);font-weight:600}
+.tag{display:inline-block;font-size:11.5px;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.t-ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.t-warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.t-bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.t-acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.d-run{background:var(--accent)}.d-wait{background:var(--warn)}.d-done{background:var(--ok)}.d-exit{background:var(--idle)}.d-stale{background:var(--bad)}
+
+/* ---- model diagram ---- */
+.model{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px}
+.model .box{flex:1 1 170px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.model .box b{display:block;font-size:14px}
+.model .box small{color:var(--muted)}
+.model .arrow{align-self:center;color:var(--muted);font-size:18px}
+.src{font-family:var(--mono);font-size:11.5px;color:var(--accent);display:block;margin-top:4px}
+
+/* ---- dashboard mock ---- */
+.mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel);min-width:860px}
+.mock-top{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--code)}
+.mock-top .brand{font-weight:700}
+.mock-top .sp{flex:1}
+.mock-body{display:grid;grid-template-columns:270px 1fr}
+.side{border-right:1px solid var(--line);padding:8px 0;font-size:13px}
+.ws{padding:6px 12px 2px;font-weight:600;display:flex;justify-content:space-between}
+.ws small{color:var(--muted);font-weight:400}
+.sess{padding:4px 12px 4px 22px;display:flex;justify-content:space-between;gap:6px;cursor:default}
+.sess span.n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess.sel{background:var(--accent-soft)}
+.sess .pg{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
+.pane{padding:14px 18px}
+.pane h4{margin:0;font-size:16px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--muted);font-size:12.5px;margin:4px 0 12px}
+.blk{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:10px}
+.blk-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.blk-h b{font-size:13.5px}
+.blk-h .sp{flex:1}
+.bar{height:6px;background:var(--code);border-radius:3px;overflow:hidden;width:120px}
+.bar i{display:block;height:100%;background:var(--ok)}
+ul.chk{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12.5px}
+ul.chk li{padding:1px 0}
+ul.chk li.x{color:var(--muted)}
+ul.chk li.now{color:var(--accent);font-weight:600}
+.btn{display:inline-block;font-size:12px;padding:3px 10px;border-radius:6px;border:1px solid var(--accent);color:var(--accent);background:transparent}
+.btn.p{background:var(--accent);color:#fff}
+.note{font-size:12px;color:var(--muted)}
+.callout{position:relative;border-left:3px solid var(--warn);background:var(--warn-soft);padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px;margin:10px 0}
+
+/* ---- layered architecture ---- */
+.layer{display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:stretch;margin-bottom:8px}
+.layer .lbl{background:var(--code);border-radius:8px;padding:10px;font-weight:600;font-size:13px}
+.layer .lbl small{display:block;font-weight:400;color:var(--muted)}
+.layer .items{display:flex;flex-wrap:wrap;gap:8px}
+.layer .it{flex:1 1 170px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px}
+.layer .it b{display:block;font-size:13px}
+.down{text-align:center;color:var(--muted);font-size:12px;margin:-2px 0 6px}
+
+/* ---- flow ---- */
+ol.flow{counter-reset:s;list-style:none;padding:0;margin:0}
+ol.flow li{counter-increment:s;position:relative;padding:6px 0 6px 38px}
+ol.flow li::before{content:counter(s);position:absolute;left:0;top:6px;width:26px;height:26px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;display:grid;place-items:center;font-size:13px}
+pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;font-size:12.5px;margin:6px 0}
+@media (max-width:640px){.layer{grid-template-columns:1fr}}
+</style>
+
+<main>
+<h1>Tracker：一个看板管住所有 session 的任务</h1>
+<p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>status</b>（session 现在在干什么）、<b>summary</b>（做完了哪些、还剩哪些，用 <code>[x]</code> / <code>[ ]</code> 显示）。</p>
+<nav class="toc">
+  <a href="#model">1 · 模型</a><a href="#dash">2 · 主看板</a><a href="#src">3 · 每个字段从哪来</a>
+  <a href="#arch">4 · 架构</a><a href="#summary">5 · 手动摘要</a><a href="#daily">6 · 日常怎么用</a>
+  <a href="#ai">7 · 给 AI 用</a><a href="#cut">8 · 砍掉的东西</a><a href="#status">9 · 进度</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="model">1 · 模型：四层，每层只有一个数据来源</h2>
+<div class="model">
+  <div class="box"><b>Workspace</b><small>一个仓库或目录（例如 infra）</small><span class="src">~/.claude/projects/&lt;slug&gt;/</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Session</b><small>一次 Claude Code 对话，可能跨几天</small><span class="src">&lt;sid&gt;.jsonl + sessions/*.json</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Task（0..n 个）</b><small>这个 session 推进的变更</small><span class="src">openspec/changes/&lt;id&gt;/</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Spec · Status · Summary</b><small>要做什么 · 现在怎样 · 剩什么</small><span class="src">tasks.md · session · claude -p</span></div>
+</div>
+<div class="grid g3" style="margin-top:12px">
+  <div class="card"><b>Session ↔ Task 是多对多</b><p class="note">一个 session 可以推进好几个 change，一个 change 也可以跨好几个 session。两者靠「session 改过 <code>openspec/changes/&lt;id&gt;/</code> 下的文件」自动关联，你不用手动绑定。</p></div>
+  <div class="card"><b>spec 用 OpenSpec 的产物</b><p class="note"><code>proposal.md</code> 写为什么做、做什么，<code>tasks.md</code> 是带 <code>- [ ]</code> 的清单。<b>清单本身就是进度</b>，靠解析文件得到，不需要 LLM。</p></div>
+  <div class="card"><b>没有 spec 的 session</b><p class="note">直接开干、没建 change 的工作也照样显示，只是没有任务清单，用「生成摘要」来补。想正式登记，就在那个 session 里跑 <code>/harness-spec-backfill</code>。</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="dash">2 · 主看板长什么样</h2>
+<p>布局参考 CloudCLI：左边是 workspace → session 树，右边是选中 session 的详情。只读，打开就能看，没有任何需要先跑的步骤。</p>
+<div class="scroll">
+<div class="mock" role="img" aria-label="主看板示意">
+  <div class="mock-top">
+    <span class="brand">harness tracker</span>
+    <span class="tag t-warn">2 个 session 在等你</span>
+    <span class="tag">running 3</span><span class="tag">done 9</span><span class="tag">exited 4</span>
+    <span class="sp"></span>
+    <span class="tag">筛选：只看需要我的</span><span class="note">刷新于 19:42 · 30s 自动刷新</span>
+  </div>
+  <div class="mock-body">
+    <div class="side">
+      <div class="ws">infra <small>3 sessions · 2 tasks</small></div>
+      <div class="sess sel"><span class="n"><i class="dot d-wait"></i>db-backup</span><span class="pg">7/9</span></div>
+      <div class="sess"><span class="n"><i class="dot d-run"></i>autoscaler-cooldown</span><span class="pg">2/6</span></div>
+      <div class="sess"><span class="n"><i class="dot d-done"></i>查 P99 延迟</span><span class="pg">无 spec</span></div>
+      <div class="ws">webapp <small>2 sessions · 1 task</small></div>
+      <div class="sess"><span class="n"><i class="dot d-run"></i>add-rate-limit</span><span class="pg">4/5</span></div>
+      <div class="sess"><span class="n"><i class="dot d-stale"></i>refactor-auth</span><span class="pg">疑似卡住</span></div>
+      <div class="ws">docs-site <small>1 session</small></div>
+      <div class="sess"><span class="n"><i class="dot d-exit"></i>改 README</span><span class="pg">无 spec</span></div>
+    </div>
+    <div class="pane">
+      <h4>db-backup</h4>
+      <div class="meta">
+        <span><i class="dot d-wait"></i><b>在等你输入</b> · 3 分钟</span><span>4.3 天 · 50 轮</span><span>branch feat/backup</span>
+        <span>diff +2.1k / −640 · 51 commits</span><span>ctx 剩 38%</span><span class="btn">复制 claude --resume</span>
+      </div>
+
+      <div class="blk">
+        <div class="blk-h"><b>Status</b><span class="tag">来自 session，自动刷新</span></div>
+        <div class="note">最后动作：Write <code>cleanup-test-env.sh</code>，然后停下来等你确认清理命令。</div>
+      </div>
+
+      <div class="blk">
+        <div class="blk-h"><b>Task · backup-two-modes</b><span class="tag t-acc">openspec</span><div class="bar"><i style="width:78%"></i></div><span class="mono">7/9</span><span class="sp"></span><span class="note">tasks.md · 2 小时前</span></div>
+        <ul class="chk">
+          <li class="x">[x] 1.1 精简成 copy / pointer 两种模式</li>
+          <li class="x">[x] 1.2 数据第二份放进备份自己的目录</li>
+          <li class="x">[x] 2.1 跨集群拷贝实测</li>
+          <li class="x">[x] 2.2 灾难恢复实测</li>
+          <li class="x">[x] 3.1 镜像改走 CI 构建</li>
+          <li class="x">[x] 3.2 用户文档 QUICKSTART / RUNBOOK</li>
+          <li class="x">[x] 3.3 保留期改成 72h（只改配置）</li>
+          <li class="now">[ ] 4.1 清理测试环境 ← 正在这条</li>
+          <li>[ ] 4.2 你本人手测一遍</li>
+        </ul>
+      </div>
+
+      <div class="blk">
+        <div class="blk-h"><b>Summary</b><span class="tag t-warn">手动生成 · 已过期（session 之后又跑了 6 轮）</span><span class="sp"></span><span class="btn p">↻ 生成摘要</span></div>
+        <ul class="chk">
+          <li class="x">[x] 两个核心场景都通过了 API 实测，最终镜像已部署</li>
+          <li class="x">[x] 代码已推到远端 main</li>
+          <li>[ ] 测试环境清理：脚本已给出，没执行</li>
+          <li>[ ] 两个边界修复只有单测，没在线上验</li>
+        </ul>
+        <p class="note">diff：51 个 commit，集中在 <code>backup/</code>，另有 3 个文件没提交 · 生成于 18:40 · 用 haiku 约 12 秒</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="callout">看板只读，所有按钮都不会改你的仓库。「生成摘要」调用一次非交互的 <code>claude -p</code>，「复制 resume」只是把命令复制到剪贴板，回到终端里粘贴执行。</div>
+
+<!-- ============================================================ -->
+<h2 id="src">3 · 每个字段从哪来</h2>
+<div class="scroll"><table>
+<tr><th>看板上的东西</th><th>来源</th><th>怎么得到</th><th>花不花钱</th></tr>
+<tr><td>左侧 workspace → session 树</td><td><code>~/.claude/projects/&lt;slug&gt;/*.jsonl</code></td><td>按目录分组；进程活着看 <code>~/.claude/sessions/*.json</code>，最近 6 小时内退出的也列出来</td><td>免费</td></tr>
+<tr><td>Status（在跑、在等你、结束、卡住）</td><td>session 状态文件 + transcript 尾部</td><td>增量读取，约 110ms 刷一次全量</td><td>免费</td></tr>
+<tr><td>Task 列表</td><td><code>&lt;ws&gt;/openspec/changes/&lt;id&gt;/</code></td><td>session 改过的文件（oplog 的 target、transcript 里的 Edit/Write）落在某个 change 目录下，就关联到这个 change</td><td>免费</td></tr>
+<tr><td>Task 的 <code>[x]</code> / <code>[ ]</code></td><td><code>tasks.md</code></td><td>直接解析 checkbox；第一个 <code>[ ]</code> 标成「正在这条」</td><td>免费</td></tr>
+<tr><td>spec 详情（点开看）</td><td><code>proposal.md</code> / <code>design.md</code></td><td>原文渲染</td><td>免费</td></tr>
+<tr><td>diff</td><td>git</td><td>session 开始以后，在它改过的文件上统计 commit 数和行数，另加未提交的改动</td><td>免费</td></tr>
+<tr><td>Summary</td><td><code>claude -p</code>（haiku）</td><td><b>只在你点按钮时生成</b>，结果缓存起来；session 之后有新动静就标「已过期」</td><td>一次约 1 次 haiku 调用</td></tr>
+<tr><td>验收 gate（可选）</td><td><code>.harness/scope/&lt;slug&gt;.yml</code></td><td>与 change 同名的 scope 文件存在时，显示它的 review 状态</td><td>免费</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="arch">4 · 架构：写的在下面，读的在上面</h2>
+<div class="layer"><div class="lbl">看的人<small>人 / AI</small></div><div class="items">
+  <div class="it"><b>浏览器看板</b>http://127.0.0.1:8787</div>
+  <div class="it"><b>CLI</b><code>harness tracker show</code>，输出带 [x]/[ ] 的 markdown</div>
+  <div class="it"><b>JSON API</b><code>/api/board</code>，任何 agent 都能读</div>
+</div></div>
+<div class="down">↑ 只读</div>
+<div class="layer"><div class="lbl">tracker 进程<small>一个 python 进程</small></div><div class="items">
+  <div class="it"><b>sessions 采集</b>phase / 最后动作 / diff（原 claude_monitor）</div>
+  <div class="it"><b>specs 扫描</b>openspec changes + scope，后台每 5 分钟</div>
+  <div class="it"><b>join</b>session ↔ change（看改过的文件）</div>
+  <div class="it"><b>summary</b>按需 <code>claude -p</code>，缓存在 <code>~/.harness/tracker/</code></div>
+</div></div>
+<div class="down">↑ 读文件</div>
+<div class="layer"><div class="lbl">文件<small>唯一的数据</small></div><div class="items">
+  <div class="it"><b>~/.claude/</b>transcript、session 状态</div>
+  <div class="it"><b>&lt;ws&gt;/openspec/</b>proposal / design / tasks.md</div>
+  <div class="it"><b>&lt;ws&gt;/.harness/</b>oplog、scope、STATE</div>
+  <div class="it"><b>git</b>commit 和改动</div>
+</div></div>
+<div class="down">↑ 写入</div>
+<div class="layer"><div class="lbl">干活的<small>你平时就在这</small></div><div class="items">
+  <div class="it"><b>Claude Code session</b>你和它对话</div>
+  <div class="it"><b>/opsx:*</b>建 change、按 tasks.md 逐条打勾</div>
+  <div class="it"><b>harness hooks</b>自动写 oplog、journal</div>
+  <div class="it"><b>harness-* skills</b>scope-gate / spec-review / spec-backfill</div>
+</div></div>
+<p class="note">没有数据库，也没有常驻服务要维护。tracker 停掉、删掉都不会丢任何数据；所有数据都在最下面两层，本来就在那里。</p>
+
+<!-- ============================================================ -->
+<h2 id="summary">5 · 手动摘要：点一下，跑一次非交互的 claude</h2>
+<ol class="flow">
+  <li>在看板上点 <span class="btn p">↻ 生成摘要</span></li>
+  <li>server 组装输入：<code>session_recap.py</code> 提取的 session 骨架 + 关联 change 的 <code>tasks.md</code> + git diff 统计</li>
+  <li>在一个隔离目录里执行 <code>claude -p --model haiku --no-session-persistence</code>，不进入交互，也不会作为新 session 出现在看板上</li>
+  <li>拿回 JSON：<code>{done:[], remaining:[], blocked_on, diff_note}</code>，渲染成 <code>[x]</code> / <code>[ ]</code></li>
+  <li>结果按 transcript 修改时间缓存。session 之后又跑了几轮，看板就标「已过期，可重新生成」</li>
+</ol>
+<pre>输出约定（prompt 里写死，渲染端只认这几个字段）
+done:       ["已完成并且有证据的事，每条一句"]
+remaining:  ["说了要做、还没做的事"]
+blocked_on: "在等谁或什么，没有就写 null"
+diff_note:  "一句话说明改了哪些地方"</pre>
+<p class="note">有 <code>tasks.md</code> 时，进度以它为准，summary 只是补充；没有 spec 的 session，summary 就是唯一的进度视图。原来那种「每条 prompt 自动调一次 LLM」的机制删掉。</p>
+
+<!-- ============================================================ -->
+<h2 id="daily">6 · 日常怎么用：一条命令，其余都在 session 里做</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>你需要敲的</h3>
+    <pre>harness tracker          # 打开看板，就这一条</pre>
+    <p class="note">第一次用要先跑一次 <code>bin/harness install</code>，以后不用再碰。</p>
+  </div>
+  <div class="card">
+    <h3>在 session 里说一句话就行的</h3>
+    <ul>
+      <li>「开个 change 做 X」→ <code>/opsx:new</code>，看板上出现新任务</li>
+      <li>「继续」→ <code>/opsx:apply</code> 逐条打勾，看板进度跟着动</li>
+      <li>「把这个 session 登记一下」→ <code>/harness-spec-backfill</code></li>
+      <li>「这个做完没」→ <code>/harness-spec-review</code></li>
+    </ul>
+  </div>
+</div>
+<div class="scroll" style="margin-top:12px"><table>
+<tr><th>场景</th><th>操作</th></tr>
+<tr><td>早上看昨晚还有什么没完</td><td>打开看板，左侧树里黄点是在等你、红点是疑似卡住，右侧看 <code>[ ]</code></td></tr>
+<tr><td>回到一个停了几天的 session</td><td>点「生成摘要」，看完点「复制 resume」，回终端粘贴，说「继续」</td></tr>
+<tr><td>开了十几个窗口，不知道谁在等我</td><td>顶栏「2 个 session 在等你」，点一下就只看这两个</td></tr>
+<tr><td>某个 session 没走流程</td><td>看板上它显示「无 spec」；需要的话在那个 session 里跑 backfill</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="ai">7 · 给 AI 用：同一份数据，三种出口</h2>
+<div class="grid g3">
+  <div class="card"><b>JSON</b><pre>GET /api/board
+GET /api/board?ws=infra
+POST /api/summary?sid=…</pre></div>
+  <div class="card"><b>Markdown CLI</b><pre>harness tracker show
+harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，agent 在 session 里直接跑就能看全局。</p></div>
+  <div class="card"><b>文件本身</b><p class="note">tasks.md、scope、oplog 都是纯文本，agent 本来就能读。tracker 只是把它们汇总起来，没有另造一份数据。</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="cut">8 · 砍掉或简化的东西</h2>
+<div class="scroll"><table>
+<tr><th>原来</th><th>现在</th><th>为什么</th></tr>
+<tr><td>每条 prompt、每次状态变化都自动调一次 Haiku 提炼目标</td><td>删掉，改成手动「生成摘要」</td><td>spec 写在 tasks.md 里，不用猜；自动调用花钱，还会出现自己喂自己的循环</td></tr>
+<tr><td><code>/task</code> 命令（手动把 session 绑定到任务）</td><td>不做</td><td>session 改了哪个 change 的文件，就自动关联到哪个 change</td></tr>
+<tr><td><code>/verify</code> 命令（跑验收命令、记录 PASS/FAIL）</td><td>不做，用 OpenSpec 自带的 <code>/opsx:verify</code></td><td>已经有了，不重复造</td></tr>
+<tr><td>改 hooks 和状态栏，显示当前任务</td><td>先不做</td><td>看板已经够用，跑一周再看要不要</td></tr>
+<tr><td>scope 的「review 后又改过」（drift）作为主指标</td><td>降成详情页里的一行提示</td><td>scope 写成宽目录时噪声很大；主进度改看 tasks.md</td></tr>
+<tr><td>Tasks / Unscoped / Sessions 三个 tab</td><td>合成一棵树，「无 spec」只是一个标记</td><td>和你实际的心智一致：先看 workspace，再看 session</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="status">9 · 进度</h2>
+<div class="scroll"><table>
+<tr><th>部件</th><th>状态</th></tr>
+<tr><td>session 采集、status、diff、按需 recap</td><td><span class="tag t-ok">已有</span> 在真实数据上验证过</td></tr>
+<tr><td><code>harness tracker</code> / <code>scan</code>、doctor 校验 scope</td><td><span class="tag t-ok">已有</span></td></tr>
+<tr><td>backfill skill</td><td><span class="tag t-warn">草案</span> 已安装，试跑过 1 次</td></tr>
+<tr><td>左侧树 + 右侧详情的新 UI</td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td>openspec 扫描 + session ↔ change 关联</td><td><span class="tag t-bad">待做</span> 目前还没有 workspace 用上 openspec，需要先找一个试点</td></tr>
+<tr><td>「生成摘要」按钮（改造现有 recap，输出 done/remaining）</td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td>删掉自动提炼</td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td><code>/api/board</code>、<code>harness tracker show</code></td><td><span class="tag t-bad">待做</span></td></tr>
+</table></div>
+</main>

@@ -1073,8 +1073,9 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 self._send_bytes(body, "text/html; charset=utf-8")
                 return
 
-            if path in ("/deck", "/deck.html"):
-                self._send_bytes((_STATIC_DIR / "deck.html").read_bytes(), "text/html; charset=utf-8")
+            if path in ("/deck", "/deck.html", "/design", "/design.html"):
+                name = "deck.html" if path.startswith("/deck") else "design.html"
+                self._send_bytes((_STATIC_DIR / name).read_bytes(), "text/html; charset=utf-8")
                 return
 
             if path == "/data/snapshot.js":

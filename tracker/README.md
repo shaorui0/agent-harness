@@ -17,7 +17,8 @@ bin/harness tracker scan       # 只重建 scope 快照
 bin/harness doctor             # 包括 scope YAML 校验
 ```
 
-设计细节和待拍板项见 [`docs/tracker-design.md`](../docs/tracker-design.md)。思路讲解在 `/deck`（大盘起来后访问）。
+**新版设计图（workspace → session → 任务，[x]/[ ] 摘要）：[`static/design.html`](static/design.html)，大盘起来后访问 `/design`。** 它取代下文 §6 的三 tab 方案，对应实现待做。
+设计细节和待拍板项见 [`docs/tracker-design.md`](../docs/tracker-design.md)。思路讲解在 `/deck`。
 
 ---
 

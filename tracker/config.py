@@ -36,3 +36,17 @@ def load() -> dict:
         cfg["port"] = int(os.environ["HARNESS_TRACKER_PORT"])
     cfg["roots"] = [Path(r).expanduser() for r in cfg["roots"]]
     return cfg
+
+
+# 这些变量把「当前进程」标识成某个 Claude Code session 的子进程（session id、消息 socket/token 等）。
+# 看板如果是在某个 session 的 Bash 里启动的，会继承它们；旁路的 `claude -p` 再继承下去，就会被当成那个 session 的子 session。
+_SESSION_ENV = {
+    "CLAUDECODE", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+}
+
+
+def claude_env() -> dict:
+    """给旁路 `claude -p` 用的环境：去掉 session 身份变量，保留认证相关变量。"""
+    return {k: v for k, v in os.environ.items() if k not in _SESSION_ENV}

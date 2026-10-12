@@ -367,10 +367,10 @@ export function mount(container, api) {
     const sid = s.session_id;
     const rc = state.recaps[sid] || s.recap;
     const pending = !!state.recapPending[sid] || s.recap_pending;
-    const btn = h('button', { style: BTN, onclick: () => runRecap(sid) }, pending ? '生成中…' : rc ? '重新运行' : '▶ 运行 session_recap');
+    const btn = h('button', { style: BTN, onclick: () => runRecap(sid) }, pending ? '生成中…' : rc ? '重新生成' : '▶ 生成 Session Summary');
     if (pending) btn.disabled = true;
-    const box = h('div', null, sectionHead('Session Recap',
-      h('span', { style: 'color:var(--mut);font-size:12px' }, '执行 session_recap skill'), btn));
+    const box = h('div', null, sectionHead('Session Summary',
+      h('span', { style: 'color:var(--mut);font-size:12px' }, '按 session_recap 流程 · 另起进程 · 不写入原 session'), btn));
     if (state.recapError[sid]) box.append(h('div', { style: 'color:#dc2626;margin-top:6px' }, state.recapError[sid]));
     if (!rc) {
       box.append(h('div', { style: 'color:var(--mut)' }, '尚未生成。只在点按钮时执行（约 1-3 分钟）。'));

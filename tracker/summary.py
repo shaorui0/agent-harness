@@ -114,6 +114,7 @@ def _run_claude(prompt: str) -> str:
     proc = subprocess.run(
         ["claude", "-p", "--model", _model()] + _CLAUDE_ARGS + [prompt], capture_output=True, text=True,
         timeout=CLAUDE_TIMEOUT, cwd=str(tracker_config.SIDECAR_CWD),
+        env=tracker_config.claude_env(),
     )
     if proc.returncode != 0:
         raise RuntimeError(f"claude 退出码 {proc.returncode}: {(proc.stderr or '')[:200]}")

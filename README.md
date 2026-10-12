@@ -31,7 +31,7 @@ flowchart LR
 | 接着某个 session 干：聊天、开 shell、看 git | CloudCLI | <http://localhost:5173>；看板里每个 session 有「在 CloudCLI 打开」按钮 |
 | 在 CloudCLI 里直接看当前 session 的任务和子任务完成情况 | Tracker tab | CloudCLI 侧边栏 → Tracker（`bin/harness install` 自动安装插件） |
 | 在终端里看，或者让 AI 看全局 | `tracker show` | `bin/harness tracker show [workspace]` |
-| 重建某个 session 的来龙去脉（做了什么、卡在哪、怎么续跑） | tracker 看板 / Tracker tab | 选中 session → Session Recap 框 →「运行 session_recap」 |
+| 重建某个 session 的来龙去脉（做了什么、卡在哪、怎么续跑） | tracker 看板 / Tracker tab | 选中 session → Session Summary 框 →「运行 session_recap」 |
 | 某个 session 没走流程，事后补 spec | skill | `/harness-spec-backfill` |
 | 体检：hook / skill / 插件 / scope 格式 | doctor | `bin/harness doctor` |
 

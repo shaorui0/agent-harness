@@ -10,6 +10,17 @@ import config
 import summary
 
 
+class ClaudeEnvTest(unittest.TestCase):
+    def test_session_identity_vars_removed_auth_kept(self):
+        import os, config
+        os.environ.update({"CLAUDE_CODE_SESSION_ID": "x", "CLAUDE_CODE_MESSAGING_TOKEN": "y", "CLAUDECODE": "1",
+                           "ANTHROPIC_API_KEY": "k", "HOME": os.environ.get("HOME", "/")})
+        env = config.claude_env()
+        for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDECODE"):
+            self.assertNotIn(k, env)
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "k")
+
+
 class SummaryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

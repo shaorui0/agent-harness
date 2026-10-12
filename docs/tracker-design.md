@@ -49,7 +49,7 @@ Binding   Session → Task | unscoped（带 source）
 ## 5. 视图（v3：树形，不再分 tab）
 
 - **左栏**：workspace → session。排序 needs_input > running > stale > done > exited，同级新的在前。「无 spec」只是 session 上的一个标记，不是单独的视图。
-- **右栏**（选中 session）：头部 phase（phase、diff、resume 命令）/ 任务进度（关联 change 的 `tasks.md`，树形：分组=任务、条目=子任务）/ Claude 梳理的任务（手动按钮生成，tasks → subtasks 完成情况）/ Session Recap（手动按钮执行 session_recap skill，七段 briefing 含续跑指令）。
+- **右栏**（选中 session）：头部 phase（phase、diff、resume 命令）/ 任务进度（关联 change 的 `tasks.md`，树形：分组=任务、条目=子任务）/ Claude 梳理的任务（手动按钮生成，tasks → subtasks 完成情况）/ Session Summary（手动按钮执行 session_recap skill，七段 briefing 含续跑指令）。
 - 入口：CloudCLI 的 Tracker tab（主）、独立总览页 `127.0.0.1:8787`、`harness tracker show`（AI/终端）。
 
 ## 6. 部件去留

@@ -35,6 +35,10 @@ bin/harness doctor                     # 包括 scope YAML 校验
 
 ---
 
+## 注意：在 CloudCLI 里打开一个还在运行的 session
+
+CloudCLI「打开」一个 session = 再起一个 `claude --resume <sid>` 进程。如果这个 session 在终端里还活着，两个进程会往**同一份 transcript** 里写，互相干扰（2026-10-12 实测出现过）。所以看板对还在运行的 session 要点两次才会跳转；只有已退出的 session 才一键打开。Session Summary 不受影响：它另起一个只读 transcript 的 `claude -p` 进程，不写入原 session，也不带启动它的 session 的身份变量（`config.claude_env()` 会去掉 `CLAUDE_CODE_SESSION_ID`、消息 socket/token 等）。
+
 ## 1. 为什么要有它
 
 同时开十几个乃至上百个 session 时，靠看对话来判断「做完没有」行不通。
@@ -112,9 +116,9 @@ tracker:
   roots: [~/work]         # 在这些目录下找 .harness/scope/
   port: 8787
   scan_interval_s: 300
-  recap_skill: ~/.claude/skills/session_recap/SKILL.md   # Session Recap 执行的 skill 文本
+  recap_skill: ~/.claude/skills/session_recap/SKILL.md   # Session Summary 执行的 skill 文本
   summary_model: sonnet                                   # 「Claude 梳理的任务」用的模型（缺省 sonnet，超时 150s）
-  recap_model: sonnet                                     # Session Recap 用的模型
+  recap_model: sonnet                                     # Session Summary 用的模型
 ```
 
 ## 4. workspace 里存什么、怎么组织
@@ -241,12 +245,12 @@ flowchart TD
   - **头部 phase**（免费，来自 session）：phase 圆点、持续时间、branch、diff、`resume` 命令
   - **任务进度（OpenSpec）**（免费，关联 change 的 `tasks.md`）：每个 change 一块，树形：分组 = 任务行（`[x]`/`[ ]` + `n/m`），条目 = 子任务（按层级缩进），第一个未完成项标「← 正在这条」，全部完成的分组默认折叠
   - **Claude 梳理的任务**（点按钮，`claude -p` sonnet）：输出 tasks → subtasks 的完成情况，树形显示；`blocked_on` 非空时显示「在等：…」；没有 `tasks` 的旧缓存回退成平铺的 done / remaining；过期会标注
-  - **Session Recap**（点按钮，执行 `session_recap` skill，sonnet）：七段 briefing，含可复制的续跑指令；结果缓存在 `~/.harness/tracker/state/recaps.jsonl`，过期会标注
+  - **Session Summary**（点按钮，执行 `session_recap` skill，sonnet）：七段 briefing，含可复制的续跑指令；结果缓存在 `~/.harness/tracker/state/recaps.jsonl`，过期会标注
   - **过程细节**（默认折叠）：最近一句话（`last_text`）、最近动作（`last_tool`）
 
 看板不关心 session 当前在跑什么，只关心有哪些任务、每个任务的子任务完成了没有。
 
-成本：「Claude 梳理的任务」点一次约 20–40 秒、一次 sonnet 调用；Session Recap 约 1-3 分钟、一次 sonnet 调用。两者都只在点按钮时调用一次 `claude -p`，没有后台自动调用。两者都带 `--setting-sources project`，因为用户级 hook 会往输出里注入格式契约，模型就不再按 skill / 摘要格式输出。`harness tracker show --recap` 打印已缓存的 recap 全文。
+成本：「Claude 梳理的任务」点一次约 20–40 秒、一次 sonnet 调用；Session Summary 约 1-3 分钟、一次 sonnet 调用。两者都只在点按钮时调用一次 `claude -p`，没有后台自动调用。两者都带 `--setting-sources project`，因为用户级 hook 会往输出里注入格式契约，模型就不再按 skill / 摘要格式输出。`harness tracker show --recap` 打印已缓存的 recap 全文。
 前端 30s 轮询，可手动刷新。`harness tracker show` 输出同样的结构。
 
 ## 7. 能不能依赖（2026-10-12）
@@ -263,7 +267,7 @@ flowchart TD
 | `harness tracker show`（`show.py`） | 已实现，有单测 | ✅ |
 | 总览页新 UI | 已实现，真实数据下验证过 | ✅ |
 | 任务 → 子任务树形展示（OpenSpec 分组树、`summary.tasks`、折叠的过程细节） | 实现中，主 agent 验证后更新 | ⚪ |
-| Session Recap（`POST/GET /api/recap`、看板与插件里的框） | 实现中，主 agent 验证后更新 | ⚪ |
+| Session Summary（`POST/GET /api/recap`、看板与插件里的框） | 实现中，主 agent 验证后更新 | ⚪ |
 | CloudCLI 插件（`cloudcli/`） | 已安装，渲染和后端代理单独验证过；**还没在运行中的 CloudCLI 里实际加载过** | 🟡 |
 | 自动目标提炼（`goal_tracker.py`、`/api/goals`） | 已删除，移入 `_archive/` | - |
 | `/harness-spec-backfill` | 草案，试跑过 1 次 | ⚪ 产出要人工核对 |
@@ -279,7 +283,7 @@ tracker/
 ├── openspec.py        # 解析 openspec/changes/*：proposal、tasks.md
 ├── board.py           # 组装 /api/board：session 按 workspace 归组、关联 change
 ├── summary.py         # 手动摘要：调 sonnet、缓存、过期判断
-├── recap.py           # Session Recap：执行 session_recap skill、缓存、过期判断
+├── recap.py           # Session Summary：执行 session_recap skill、缓存、过期判断
 ├── show.py            # harness tracker show：board → markdown
 ├── test_show.py       # show 的单测（python3 -m unittest test_show）
 ├── specs.py           # scope 扫描、drift、校验

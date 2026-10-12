@@ -432,8 +432,27 @@ details.proc>summary{color:var(--muted)}
     var holder = h('div', { class: 'fallback', hidden: true });
     var ci = cliInfo();
     if (ci && ci.url && s.session_id) {
-      meta.appendChild(h('a', { class: 'btn p', href: ci.url + '/session/' + encodeURIComponent(s.session_id), target: '_blank', rel: 'noopener',
-        title: '在 CloudCLI 里打开这个 session，可以直接接着聊', text: '在 CloudCLI 打开 ↗' }));
+      var cliUrl = ci.url + '/session/' + encodeURIComponent(s.session_id);
+      if (s.phase === 'exited') {
+        meta.appendChild(h('a', { class: 'btn p', href: cliUrl, target: '_blank', rel: 'noopener',
+          title: '在 CloudCLI 里打开这个 session，可以直接接着聊', text: '在 CloudCLI 打开 ↗' }));
+      } else {
+        // session 的进程还活着（比如在终端里跑着）。CloudCLI 打开它 = 再起一个 claude --resume 进程，
+        // 两个进程会往同一份 transcript 里写，互相干扰。所以要点两次才打开。
+        var ob = h('button', { class: 'btn', type: 'button', text: '在 CloudCLI 打开 ↗',
+          title: '这个 session 的进程还在运行：CloudCLI 会再起一个进程写同一份记录，会互相干扰' });
+        var armed = false;
+        ob.addEventListener('click', function () {
+          if (!armed) {
+            armed = true; ob.textContent = '⚠ 进程还在运行，再点一次才打开'; ob.className = 'btn t-bad';
+            setTimeout(function () { armed = false; ob.textContent = '在 CloudCLI 打开 ↗'; ob.className = 'btn'; }, 6000);
+            return;
+          }
+          window.open(cliUrl, '_blank', 'noopener');
+          armed = false; ob.textContent = '在 CloudCLI 打开 ↗'; ob.className = 'btn';
+        });
+        meta.appendChild(ob);
+      }
     }
     if (s.resume_cmd) {
       var cb = h('button', { class: 'btn', type: 'button', text: '复制 claude --resume' });
@@ -471,7 +490,7 @@ details.proc>summary{color:var(--muted)}
 
     // Claude-organised tasks
     frag.appendChild(renderSummary(s, chs.length > 0));
-    // Session Recap
+    // Session Summary（session_recap 流程）
     frag.appendChild(renderRecap(s));
     // Process details (collapsed)
     var proc = renderProc(s, chs);
@@ -594,11 +613,11 @@ details.proc>summary{color:var(--muted)}
   function renderRecap(s) {
     var sid = s.session_id, rc = recapOf(s), pend = isRecapPending(s), stt = recapState[sid] || {};
     var blk = h('section', { class: 'blk' });
-    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Session Recap' }), tag('执行 session_recap skill', 't-acc')]);
+    var head = h('div', { class: 'blk-h' }, [h('b', { text: 'Session Summary' }), tag('按 session_recap 流程 · 另起进程 · 不写入原 session', 't-acc')]);
     if (rc && rc.stale) head.appendChild(tag('已过期', 't-warn'));
     if (rc && rc.skill_missing) head.appendChild(tag('用了内置说明'));
     head.appendChild(h('span', { class: 'sp' }));
-    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend, text: pend ? '生成中…' : (rc ? '重新运行' : '▶ 运行 session_recap') });
+    var btn = h('button', { class: 'btn p', type: 'button', disabled: pend, text: pend ? '生成中…' : (rc ? '重新生成' : '▶ 生成 Session Summary') });
     btn.addEventListener('click', function () { startRecap(sid); });
     head.appendChild(btn);
     blk.appendChild(head);
@@ -606,7 +625,7 @@ details.proc>summary{color:var(--muted)}
       blk.appendChild(renderMd(rc.markdown));
       blk.appendChild(h('div', { class: 'note', style: 'margin-top:8px', text: '生成于 ' + fmtTime(rc.generated_at) + (rc.model ? ' · ' + rc.model : '') }));
     } else if (!pend) {
-      blk.appendChild(h('div', { class: 'note', text: '点按钮：用 session_recap skill 重建这个 session 的来龙去脉（一句话 / 已落地 / 停在哪 / 下一步 / 续跑指令）' }));
+      blk.appendChild(h('div', { class: 'note', text: '点按钮：另起一个 claude（sonnet）按 session_recap 流程读这个 session 的记录，重建来龙去脉（一句话 / 已落地 / 停在哪 / 下一步 / 续跑指令）；只读记录，不会写进原 session，也不会自动运行。' }));
     }
     if (stt.error) blk.appendChild(h('div', { class: 'err', text: stt.error }));
     return blk;

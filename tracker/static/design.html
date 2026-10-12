@@ -96,7 +96,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 
 <main>
 <h1>Tracker：一个看板管住所有 session 的任务</h1>
-<p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>任务进度</b>（<code>tasks.md</code> 的分组 = 任务、条目 = 子任务，树形）、<b>Claude 梳理的任务</b>（任务 → 子任务的完成情况，用 <code>[x]</code> / <code>[ ]</code> 显示）；看板只关心任务和子任务完成了没有，不关心 session 当前在跑什么。另有一个按需的<b>Session Recap</b> 框，重建这个 session 的来龙去脉。</p>
+<p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>任务进度</b>（<code>tasks.md</code> 的分组 = 任务、条目 = 子任务，树形）、<b>Claude 梳理的任务</b>（任务 → 子任务的完成情况，用 <code>[x]</code> / <code>[ ]</code> 显示）；看板只关心任务和子任务完成了没有，不关心 session 当前在跑什么。另有一个按需的<b>Session Summary</b> 框，重建这个 session 的来龙去脉。</p>
 <nav class="toc">
   <a href="#model">1 · 模型</a><a href="#dash">2 · 主看板</a><a href="#src">3 · 每个字段从哪来</a>
   <a href="#arch">4 · 架构</a><a href="#summary">5 · 手动摘要</a><a href="#cloudcli">5½ · CloudCLI 集成</a><a href="#daily">6 · 日常怎么用</a>
@@ -204,7 +204,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
       </div>
 
       <div class="blk">
-        <div class="blk-h"><b>Session Recap</b><span class="tag">执行 session_recap skill</span><span class="sp"></span><span class="btn">重新运行</span></div>
+        <div class="blk-h"><b>Session Summary</b><span class="tag">执行 session_recap skill</span><span class="sp"></span><span class="btn">重新运行</span></div>
         <p class="note"><b>一句话</b> 把备份收敛成 copy 和 pointer 两种模式，核心场景已跑通。<br><b>续跑指令</b> 一段可复制的代码块（<code>claude --resume …</code> 加下一步）。七段 briefing，只在点按钮时生成，过期会标注。</p>
       </div>
 
@@ -228,7 +228,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 <tr><td>spec 详情（点开看）</td><td><code>proposal.md</code> / <code>design.md</code></td><td>原文渲染</td><td>免费</td></tr>
 <tr><td>diff</td><td>git</td><td>session 开始以后，在它改过的文件上统计 commit 数和行数，另加未提交的改动</td><td>免费</td></tr>
 <tr><td>Claude 梳理的任务</td><td><code>claude -p</code>（sonnet）</td><td><b>只在你点按钮时生成</b>：梳理出任务 → 子任务的完成情况（树形），结果缓存起来；session 之后有新动静就标「已过期」</td><td>点一次约 20–40 秒，一次 sonnet 调用</td></tr>
-<tr><td>Session Recap</td><td><code>claude -p</code>（sonnet）执行 <code>session_recap</code> skill</td><td><b>只在你点按钮时生成</b>：用 <code>session_recap.py</code> 抽 transcript 骨架，连同 skill 文本交给 claude 写七段 briefing（含续跑指令）；缓存，session 之后有新动静就标「已过期」</td><td>一次 sonnet 调用，约 1-3 分钟</td></tr>
+<tr><td>Session Summary</td><td><code>claude -p</code>（sonnet）执行 <code>session_recap</code> skill</td><td><b>只在你点按钮时生成</b>：用 <code>session_recap.py</code> 抽 transcript 骨架，连同 skill 文本交给 claude 写七段 briefing（含续跑指令）；缓存，session 之后有新动静就标「已过期」</td><td>一次 sonnet 调用，约 1-3 分钟</td></tr>
 <tr><td>验收 gate（可选）</td><td><code>.harness/scope/&lt;slug&gt;.yml</code></td><td>与 change 同名的 scope 文件存在时，显示它的 review 状态</td><td>免费</td></tr>
 </table></div>
 

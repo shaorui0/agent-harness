@@ -15,7 +15,7 @@
 把 `install/hooks-manifest.json` 的条目并进 `~/.claude/settings.json`（写之前先备份，只增不改别的），
 在 `~/.harness/` 下建 journal 和 run 目录并放一份全局默认配置。
 
-`doctor` 检查每一条软链是否指向这个仓库、settings.json 引用的文件是否真存在、目录是否齐全。有 FAIL 时退出码非零，可以直接进 cron。
+`doctor` 检查每一条软链是否指向这个仓库、settings.json 引用的文件是否真存在、目录是否齐全，并校验 `tracker.roots` 下所有 scope 文件（YAML 解析失败报 FAIL，字段问题报 WARN）。有 FAIL 时退出码非零，可以直接进 cron。
 
 ## 接一个项目
 
@@ -37,6 +37,10 @@ cd /path/to/repo
 | `/harness-dispatch` | 手上有一份【下一步】清单要执行 | 推 DoD 并确认一次，然后按依赖分波派 3-8 个子 agent 执行，主 agent 只调度与收口；DoD 逐条 verify 通过才停，子 agent 的线上写命令走 escrow 一波一批 |
 | `/harness-scope-gate` | 中大型改动开工前 | 逐题问清楚目标/不做什么/验收标准/允许碰哪些路径，写成 `confirmed` 的 scope artifact——`harness-envelope.py` 只认这份 artifact 的 `covers` 字段，见 [docs/scope-and-spec-gate-design.md](docs/scope-and-spec-gate-design.md) |
 | `/harness-spec-review` | 一个 scope 的改动做完之后 | 独立无上下文 reviewer 打分，有限轮次收敛到 `CLEARED`/`DONE_WITH_CONCERNS`。**纯 pull**——没有 hook 会替你发现"有 scope 没收敛"，得自己记得跑；不点名就只报告未收敛列表，不代别的 session 判定 |
+| `/harness-req-split` | 大需求开工前 | 拆成 N 个能各自判 pass/fail 的子 scope，每个走一遍 scope-gate，起一份 pipeline artifact 串联后续阶段 |
+| `/harness-cross-verify` | 子 scope 都收敛后 | 先证明维度正交，再拆多路无上下文 reviewer 交叉核查，主 agent 只合并找矛盾 |
+| `/harness-scale-check` | 要在真实规模环境下验证时 | 最小可回退档位 → 逐档扩大 → 每档验证，证据记进 pipeline artifact |
+| `/harness-spec-backfill` | 有没走流程的 session 要补登 | 从 transcript 倒推 spec 和每条 AC 的判定，草稿经确认后写成 `status: reconstructed` 的 scope。**草案**，见 [tracker/README.md](tracker/README.md) |
 | `harness-output-format` | 不由用户主动触发 | 输出格式契约的唯一真相来源；`harness-session-start.py`/`harness-prompt-contract.py` 从这份文件读取正文注入 context，改这一处即可同时影响两个 hook；也可以在没有这套 hook 的地方手动引用保持格式一致 |
 
 **`scope_gate` 是纯 opt-in（2026-08-14 撤销了默认全局强制）。** `protected_paths` 留空就完全不限制，不再回退到 `write_roots` 或整个仓库。原因：本地、git 跟踪的编辑本身就可回退，git 已经是安全网，用一个默认全仓库生效的确认闸门去挡每一次写操作，代价（几乎每次改动都要先跑 `/harness-scope-gate` 逐题澄清）远大于收益。实测反例：`cre6630-infra` 显式配置 `protected_paths` 覆盖了 6 个目录，两天内攒了 15 个 `confirmed` scope artifact，其中 11 个从未跑过 `/harness-spec-review` 收敛——多数是"为了解锁写权限"而不是真的需要提前澄清。想在特定路径上加额外摩擦（比如这套 harness 自己的自举文件），在 `project.yml` 里显式写 `scope_gate.protected_paths` 即可，不写就不生效。详见 `docs/scope-and-spec-gate-design.md` 的撤销记录。
@@ -65,12 +69,26 @@ cd /path/to/repo
 ├── oplog.jsonl          # 变更留痕：写了什么文件、移了什么、跑了什么 mutating 命令
 ├── scope/
 │   └── <slug>.yml       # /harness-scope-gate 的产出，被 harness-envelope.py 检查 covers；review 段由 /harness-spec-review 写
+├── backfill-drafts/     # /harness-spec-backfill 的草稿，确认后才进 scope/
+├── pipeline/<slug>.yml  # /harness-req-split 的阶段串联（可选）
 ├── archive/
 │   └── 2026-08-15/
 │       ├── ARCHIVE-MANIFEST.md   # 每条：原路径 / 原因 / 被什么取代 / 时间
 │       └── <被取代的文件>
 └── .last-compact        # 上次收敛的时间戳
 ```
+
+## 大盘：tracker
+
+`.harness/` 的只读旁路。跨所有 workspace 回答：承诺了哪些任务、每个做到哪了、证据在不在、review 之后代码有没有又被改过（drift）、哪些 session 的工作根本没有 spec。
+
+```bash
+bin/harness tracker          # http://127.0.0.1:8787，只绑 loopback
+bin/harness tracker scan     # 只重建 scope 快照
+```
+
+不写任何 scope，不调 LLM（唯一例外：点开某个 session 时按需生成一次 recap）。运行时数据放在 `~/.harness/tracker/`，仓库里只有代码。
+用法、workspace 怎么组织、配合哪些 skill、哪些部件能依赖，见 [tracker/README.md](tracker/README.md)；设计见 [docs/tracker-design.md](docs/tracker-design.md)。
 
 ## 定时收敛
 

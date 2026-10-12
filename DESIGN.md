@@ -27,6 +27,7 @@ AI 让执行变便宜之后，事情变多了，省下来的时间没有落到�
 | 越界动作被拦住 | `PreToolUse` hook | 一个新项目该怎么配 | `/harness-onboard` skill |
 | 项目显式配置了 `protected_paths` 时，落在其中且未声明边界的写操作被挡住（纯 opt-in，2026-08-14 撤销了默认全局强制，见 `docs/scope-and-spec-gate-design.md`） | `PreToolUse` hook（scope gate） | 边界该怎么问、问到什么程度算清楚 | `/harness-scope-gate` skill |
 | （没有对应项） | — | 这份 spec 是不是真的做完了 | `/harness-spec-review` skill |
+| （没有对应项） | — | 哪些 scope 没收敛、证据过期、哪些工作没有 spec | `bin/harness tracker`（只读大盘，人主动打开，不挂事件） |
 
 **原则一有一条推论，试出来才补上的**：hook 只能判断这一轮自己的事，不能替 session 去扫全局状态。
 曾经有过一个 Stop hook 的 spec-review guard，每轮扫 `.harness/scope/*.yml`，见到没收敛的 `confirmed` artifact 就拦。

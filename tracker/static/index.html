@@ -1,0 +1,577 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Fleet Monitor</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f4; --panel: #ffffff; --row-alt: #fafaf8; --hover: #f0efe9; --sel: #e4ecfb;
+    --fg: #1b1b1a; --dim: #5c5c58; --faint: #8a8a84; --border: #dcdcd6;
+    --need-bg: #fdecc8; --need-fg: #7a3d00; --need-row: #fff8e6; --need-bar: #d97706;
+    --run-bg: #dbe7fd; --run-fg: #1a3f9c;
+    --done-bg: #d9f0df; --done-fg: #14612f;
+    --stale-bg: #e8e8e4; --stale-fg: #55554f;
+    --exit-fg: #6b6b66;
+    --bad-bg: #fbdcdc; --bad-fg: #8f1d1d;
+    --ins: #14702f; --del: #b42318;
+    --bar-bg: #dedcd5; --bar-fg: #2f7d4f;
+    --link: #1a4fbf;
+    --shadow: 0 0 24px rgba(0,0,0,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151618; --panel: #1d1e21; --row-alt: #1a1b1e; --hover: #26282c; --sel: #1f2d47;
+      --fg: #e7e7e4; --dim: #a8a8a2; --faint: #7f7f79; --border: #35373b;
+      --need-bg: #4a3410; --need-fg: #fbd38d; --need-row: #261f12; --need-bar: #f59e0b;
+      --run-bg: #1d3158; --run-fg: #9dc0ff;
+      --done-bg: #17391f; --done-fg: #86e0a0;
+      --stale-bg: #2d2e31; --stale-fg: #b0b0aa;
+      --exit-fg: #8d8d87;
+      --bad-bg: #4a1d1d; --bad-fg: #fca5a5;
+      --ins: #5fd38a; --del: #ff8f85;
+      --bar-bg: #34363a; --bar-fg: #4cc07f;
+      --link: #8db4ff;
+      --shadow: 0 0 24px rgba(0,0,0,.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .title { font-weight: 700; margin-right: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+    background: transparent; line-height: 1.4;
+  }
+  .chip:hover { background: var(--hover); }
+  .chip b { font-variant-numeric: tabular-nums; }
+  .chip[aria-pressed="true"] { outline: 2px solid var(--link); outline-offset: -1px; }
+  .chip.need { background: var(--need-bg); color: var(--need-fg); border-color: var(--need-bar); font-weight: 600; }
+  .chip.need.zero { background: transparent; color: var(--dim); border-color: var(--border); font-weight: 400; }
+  .chip .sub { font-weight: 400; font-size: 11.5px; }
+  .spacer { flex: 1; }
+  .filter {
+    width: 220px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); font: inherit;
+  }
+  .filter:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+  .conn { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--bar-fg); display: inline-block; }
+  .conn.err { color: var(--bad-fg); background: var(--bad-bg); padding: 2px 8px; border-radius: 6px; }
+  .conn.err i { background: var(--del); }
+  kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; color: var(--dim); }
+
+  /* ---------- table ---------- */
+  .main { flex: 1; min-height: 0; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead th {
+    position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left;
+    font-weight: 600; font-size: 11.5px; color: var(--dim); padding: 6px 8px;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody tr { cursor: pointer; border-bottom: 1px solid var(--border); }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  tbody tr:hover { background: var(--hover); }
+  tbody tr.sel { background: var(--sel) !important; }
+  tbody tr.p-needs_input { background: var(--need-row); box-shadow: inset 3px 0 0 var(--need-bar); }
+  tbody tr.p-exited, tbody tr.p-stale { color: var(--dim); }
+  td { padding: 5px 8px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-phase { width: 140px; } .c-proj { width: 190px; } .c-goal { width: 86px; }
+  .c-diff { width: 275px; } .c-todo { width: 104px; } .c-ctx { width: 62px; } .c-loc { width: 74px; }
+  .pill {
+    display: inline-block; min-width: 68px; text-align: center; padding: 1px 8px; border-radius: 4px;
+    font-size: 12px; font-weight: 600;
+  }
+  .pill.needs_input { background: var(--need-bg); color: var(--need-fg); }
+  .pill.running { background: var(--run-bg); color: var(--run-fg); }
+  .pill.done { background: var(--done-bg); color: var(--done-fg); }
+  .pill.stale { background: var(--stale-bg); color: var(--stale-fg); }
+  .pill.exited { background: transparent; color: var(--exit-fg); border: 1px dashed var(--faint); padding: 0 7px; }
+  .age { margin-left: 6px; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .age.hot { color: var(--need-fg); font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .age.hot { color: var(--need-bar); } }
+  .proj { font-weight: 600; }
+  .nm { color: var(--dim); }
+  .line2 { font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+  .line2.blocked { color: var(--need-fg); font-weight: 500; }
+  @media (prefers-color-scheme: dark) { .line2.blocked { color: var(--need-bar); } }
+  .gb { display: inline-block; padding: 0 7px; border-radius: 4px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); color: var(--dim); }
+  .gb.progress { background: var(--run-bg); color: var(--run-fg); border-color: transparent; }
+  .gb.converged { background: var(--done-bg); color: var(--done-fg); border-color: transparent; }
+  .gb.diverged { background: var(--need-bg); color: var(--need-fg); border-color: transparent; }
+  .gb.abandoned { background: var(--stale-bg); color: var(--stale-fg); border-color: transparent; text-decoration: line-through; }
+  .gb.extract_failed { background: var(--bad-bg); color: var(--bad-fg); border-color: transparent; }
+  .ins { color: var(--ins); } .del { color: var(--del); }
+  .diff .dirty { color: var(--need-bar); }
+  .bar { display: inline-block; vertical-align: middle; width: 42px; height: 6px; border-radius: 3px; background: var(--bar-bg); overflow: hidden; margin-right: 5px; }
+  .bar > i { display: block; height: 100%; background: var(--bar-fg); }
+  .low { color: var(--del); font-weight: 600; }
+  .dimc { color: var(--faint); }
+  .empty { padding: 40px; text-align: center; color: var(--dim); }
+
+  /* ---------- jobs ---------- */
+  .jobs { flex: none; border-top: 1px solid var(--border); background: var(--panel); max-height: 30vh; overflow: auto; }
+  .jobs summary { padding: 6px 14px; cursor: pointer; color: var(--dim); font-weight: 600; font-size: 12px; user-select: none; }
+  .job { display: flex; gap: 12px; padding: 3px 14px 3px 28px; font-size: 12px; align-items: baseline; }
+  .job .jn { font-weight: 600; width: 200px; flex: none; }
+  .job .js { width: 60px; flex: none; color: var(--dim); }
+  .job .jd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .job .jt { color: var(--faint); white-space: nowrap; }
+
+  /* ---------- drawer ---------- */
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(580px, 100vw); z-index: 10;
+    background: var(--panel); border-left: 1px solid var(--border); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; transform: translateX(105%); transition: transform .14s ease-out;
+  }
+  .drawer.open { transform: none; }
+  .dh { flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .dh .t { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .x { border: 1px solid var(--border); background: transparent; border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+  .x:hover { background: var(--hover); }
+  .db { flex: 1; overflow: auto; padding: 4px 14px 20px; }
+  .db h4 { margin: 14px 0 4px; font-size: 11.5px; color: var(--dim); letter-spacing: .04em; font-weight: 700; }
+  .db p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .db ul { margin: 0; padding-left: 18px; }
+  .db li { margin: 1px 0; }
+  .kv { display: grid; grid-template-columns: 62px 1fr auto; gap: 3px 8px; align-items: baseline; }
+  .kv .k { color: var(--dim); font-size: 12px; }
+  .kv .v { word-break: break-all; }
+  .cp { border: 1px solid var(--border); background: transparent; border-radius: 4px; font-size: 11px; padding: 0 6px; cursor: pointer; color: var(--dim); }
+  .cp:hover { background: var(--hover); }
+  .cp.ok { color: var(--ins); border-color: var(--ins); }
+  .recap { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--row-alt); }
+  .recap .r { display: grid; grid-template-columns: 62px 1fr; gap: 6px; margin: 3px 0; }
+  .recap .r > span:first-child { color: var(--dim); font-size: 12px; }
+  .recap .blocked { color: var(--need-fg); font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .recap .blocked { color: var(--need-bar); } }
+  .pending { color: var(--dim); font-style: italic; }
+  .todo-i { list-style: none; margin-left: -18px; }
+  .todo-i .st { display: inline-block; width: 16px; color: var(--faint); }
+  .todo-i.completed { color: var(--faint); text-decoration: line-through; }
+  .todo-i.in_progress { font-weight: 600; }
+  .todo-i.in_progress .st { color: var(--run-fg); }
+  .files li { list-style: none; margin-left: -18px; }
+  .scrim { position: fixed; inset: 0; z-index: 9; display: none; pointer-events: none; }
+  .scrim.open { display: block; }
+
+  /* ---------- narrow: hide low-priority columns ---------- */
+  @media (max-width: 1250px) { .c-loc { display: none; } }
+  @media (max-width: 1100px) { .c-ctx, .c-todo { display: none; } }
+  @media (max-width: 900px)  { .c-diff, .c-goal { display: none; } .c-proj { width: 150px; } .filter { width: 140px; } }
+  @media (max-width: 640px)  { .c-phase { width: 96px; } .pill { min-width: 0; } .age { display: block; margin: 0; } }
+</style>
+
+<div class="topbar" id="topbar">
+  <span class="title">Claude Fleet</span>
+  <span id="chips" style="display:contents"></span>
+  <span class="spacer"></span>
+  <input id="filter" class="filter" type="search" placeholder="过滤 项目 / 名称 / spec" aria-label="过滤">
+  <kbd>/</kbd>
+  <span id="conn" class="conn"><i></i><span>加载中…</span></span>
+</div>
+
+<div class="main" id="main">
+  <table>
+    <thead><tr>
+      <th class="c-phase">状态 / 时长</th><th class="c-proj">项目 / 名称</th><th>Spec / 当前</th>
+      <th class="c-goal">目标</th><th class="c-diff">变更</th><th class="c-todo">Todo</th><th class="c-ctx">ctx剩</th><th class="c-loc">iTerm</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div id="empty" class="empty" hidden>没有匹配的 session</div>
+</div>
+
+<details class="jobs" id="jobs" hidden><summary id="jobs-sum"></summary><div id="jobs-body"></div></details>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Session 详情">
+  <div class="dh"><span class="t" id="d-title"></span><button class="x" id="d-close" title="Esc">关闭 ✕</button></div>
+  <div class="db" id="d-body"></div>
+</aside>
+
+<script>
+(function () {
+  'use strict';
+  var MOCK = /[?&]mock=1/.test(location.search);
+  var URLS = MOCK
+    ? { state: 'dev/mock_state.json', goals: 'dev/mock_goals.json' }
+    : { state: '/api/state', goals: '/api/goals' };
+
+  var PHASES = ['needs_input', 'running', 'done', 'stale', 'exited'];
+  var PHASE_LABEL = { needs_input: '待输入', running: '运行中', done: '本轮结束', stale: '疑似卡死', exited: '已退出' };
+  var GOAL_LABEL = { progress: '进行中', converged: '已收敛', diverged: '偏离', abandoned: '放弃', extract_failed: '提取失败' };
+  var STATUS2PHASE = { busy: 'running', waiting: 'needs_input', idle: 'done', unknown: 'stale' };
+
+  var state = { sessions: [], jobs: [], summary: null };
+  var goals = {};
+  var sessionById = {};
+  var rowEls = {};      // sid -> {tr, html}
+  var phaseFilter = null;
+  var textFilter = '';
+  var selectedSid = null;
+  var lastOk = 0, lastErr = null, inflight = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
+  }
+  function fmtAge(s) {
+    if (s === null || s === undefined || isNaN(s)) return '';
+    s = Math.max(0, Math.floor(s));
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60); if (m < 60) return m + 'm';
+    var h = Math.floor(m / 60); if (h < 24) return h + 'h' + (m % 60 ? (m % 60) + 'm' : '');
+    var d = Math.floor(h / 24); return d + 'd' + (h % 24 ? (h % 24) + 'h' : '');
+  }
+  function fmtTok(n) {
+    if (n === null || n === undefined) return '—';
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+    return String(n);
+  }
+  function hhmmss(d) { return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function (x) { return String(x).padStart(2, '0'); }).join(':'); }
+
+  // ---------- normalisation (v2 fields with v1 fallbacks) ----------
+  function ageOf(s) {
+    if (typeof s.phase_age_s === 'number') return s.phase_age_s;
+    var t = new Date(s.phase_since || s.status_updated_at || s.started_at || 0).getTime();
+    return t ? Math.max(0, (Date.now() - t) / 1000) : null;
+  }
+  function norm(s) {
+    s.phase = s.phase || STATUS2PHASE[s.status] || 'stale';
+    s._age = ageOf(s);
+    s._spec = s.spec || s.last_human_prompt || null;
+    return s;
+  }
+
+  // ---------- sorting: stable, independent of ticking ages ----------
+  function sortKey(s) { return (s.project_name || '') + '\u0000' + (s.name || '') + '\u0000' + s.session_id; }
+  function cmp(a, b) {
+    var pa = PHASES.indexOf(a.phase), pb = PHASES.indexOf(b.phase);
+    if (pa !== pb) return pa - pb;
+    if (a.phase === 'needs_input') {   // oldest first, by absolute start time (does not drift)
+      var ta = new Date(a.phase_since || a.status_updated_at || 0).getTime();
+      var tb = new Date(b.phase_since || b.status_updated_at || 0).getTime();
+      if (ta !== tb) return ta - tb;
+    }
+    var ka = sortKey(a), kb = sortKey(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  }
+  function matches(s) {
+    if (phaseFilter && s.phase !== phaseFilter) return false;
+    if (!textFilter) return true;
+    var hay = ((s.project_name || '') + ' ' + (s.name || '') + ' ' + (s._spec || '')).toLowerCase();
+    return textFilter.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+  }
+
+  // ---------- summary chips ----------
+  function summaryOf() {
+    var sm = state.summary, c = { total: state.sessions.length, oldest_needs_input_s: 0 };
+    PHASES.forEach(function (p) { c[p] = 0; });
+    state.sessions.forEach(function (s) {
+      c[s.phase]++;
+      if (s.phase === 'needs_input' && s._age > c.oldest_needs_input_s) c.oldest_needs_input_s = s._age;
+    });
+    if (sm && typeof sm.total === 'number') {   // prefer server numbers when present
+      PHASES.forEach(function (p) { if (typeof sm[p] === 'number') c[p] = sm[p]; });
+      c.total = sm.total; c.oldest_needs_input_s = sm.oldest_needs_input_s || 0;
+    }
+    return c;
+  }
+  var chipsSig = '';
+  function renderChips() {
+    var c = summaryOf();
+    var sig = JSON.stringify([c, phaseFilter]);
+    if (sig === chipsSig) return;
+    chipsSig = sig;
+    var h = '<button class="chip" data-p="" aria-pressed="' + (!phaseFilter) + '">全部 <b>' + c.total + '</b></button>';
+    PHASES.forEach(function (p) {
+      var cls = 'chip' + (p === 'needs_input' ? ' need' + (c[p] ? '' : ' zero') : '');
+      var extra = (p === 'needs_input' && c[p] && c.oldest_needs_input_s) ? ' <span class="sub">最久 ' + fmtAge(c.oldest_needs_input_s) + '</span>' : '';
+      h += '<button class="' + cls + '" data-p="' + p + '" aria-pressed="' + (phaseFilter === p) + '">' + PHASE_LABEL[p] + ' <b>' + c[p] + '</b>' + extra + '</button>';
+    });
+    $('chips').innerHTML = h;
+  }
+  $('chips').addEventListener('click', function (e) {
+    var b = e.target.closest('.chip'); if (!b) return;
+    var p = b.dataset.p || null;
+    phaseFilter = (p === phaseFilter) ? null : p;
+    chipsSig = ''; renderChips(); renderTable();
+  });
+  $('filter').addEventListener('input', function (e) { textFilter = e.target.value.trim().toLowerCase(); renderTable(); });
+
+  // ---------- table (keyed, diffed) ----------
+  function goalBadge(sid) {
+    var g = goals[sid];
+    if (!g) return '<span class="dimc">—</span>';
+    var b = g.status_badge || 'extract_failed';
+    return '<span class="gb ' + esc(b) + '" title="' + esc((g.reason || '') ) + '">' + esc(GOAL_LABEL[b] || b) + '</span>';
+  }
+  function diffCell(s) {
+    var d = s.diff;
+    if (!d) return '<span class="dimc">—</span>';
+    if (!d.files_changed && !d.commits_since_start) return '<span class="dimc">无变更</span>';
+    var h = '<span class="ins">+' + d.insertions + '</span> <span class="del">−' + d.deletions + '</span> <span class="dimc">·</span> ' + d.files_changed + ' 文件';
+    if (d.commits_since_start) h += ' <span class="dimc">·</span> ' + d.commits_since_start + ' commit';
+    if (d.dirty) h += ' <span class="dirty" title="有未提交改动">●</span>';
+    return h;
+  }
+  function todoCell(s) {
+    if (!s.todo_total) return '<span class="dimc">—</span>';
+    var pct = Math.round(100 * (s.todo_done || 0) / s.todo_total);
+    return '<span class="bar"><i style="width:' + pct + '%"></i></span>' + (s.todo_done || 0) + '/' + s.todo_total;
+  }
+  function line2(s) {
+    var g = goals[s.session_id], r = g && g.recap;
+    if (r && s.phase === 'needs_input' && r.blocked_on) return '<div class="line2 blocked">⏸ ' + esc(r.blocked_on) + '</div>';
+    if (r && r.now) return '<div class="line2">▸ ' + esc(r.now) + '</div>';
+    if (s.phase === 'needs_input' && s.waiting_for) return '<div class="line2 blocked">⏸ ' + esc(s.waiting_for) + '</div>';
+    if (s.last_action) return '<div class="line2 mono">' + esc(s.last_action) + '</div>';
+    return '<div class="line2 dimc">—</div>';
+  }
+  function rowHtml(s) {
+    var hot = s.phase === 'needs_input' && s._age > 600;
+    var ctxLow = typeof s.ctx_tokens_left === 'number' && s.ctx_tokens_left < 30000;
+    return '<td class="c-phase"><span class="pill ' + s.phase + '">' + PHASE_LABEL[s.phase] + '</span><span class="age' + (hot ? ' hot' : '') + '">' + fmtAge(s._age) + '</span></td>' +
+      '<td class="c-proj"><div class="proj">' + esc(s.project_name || '?') + (s.kind === 'bg' ? ' <span class="dimc">bg</span>' : '') + '</div><div class="line2">' + esc(s.name || '') + '</div></td>' +
+      '<td title="' + esc(s._spec || '') + '"><div>' + (s._spec ? esc(s._spec.replace(/\s+/g, ' ')) : '<span class="dimc">—</span>') + '</div>' + line2(s) + '</td>' +
+      '<td class="c-goal">' + goalBadge(s.session_id) + '</td>' +
+      '<td class="c-diff diff">' + diffCell(s) + '</td>' +
+      '<td class="c-todo">' + todoCell(s) + '</td>' +
+      '<td class="c-ctx' + (ctxLow ? ' low' : '') + '">' + fmtTok(s.ctx_tokens_left) + '</td>' +
+      '<td class="c-loc mono">' + esc(s.iterm_location || '') + '</td>';
+  }
+  function renderTable() {
+    var tb = $('tbody');
+    var list = state.sessions.filter(matches).sort(cmp);
+    var keep = {};
+    list.forEach(function (s) { keep[s.session_id] = 1; });
+    Object.keys(rowEls).forEach(function (sid) {
+      if (!keep[sid]) { rowEls[sid].tr.remove(); delete rowEls[sid]; }
+    });
+    var prev = null;
+    list.forEach(function (s) {
+      var sid = s.session_id, ent = rowEls[sid];
+      if (!ent) {
+        var tr = document.createElement('tr'); tr.dataset.sid = sid;
+        ent = rowEls[sid] = { tr: tr, html: '', cls: '' };
+      }
+      var html = rowHtml(s);
+      if (html !== ent.html) { ent.tr.innerHTML = html; ent.html = html; }
+      var cls = 'p-' + s.phase + (sid === selectedSid ? ' sel' : '');
+      if (cls !== ent.cls) { ent.tr.className = cls; ent.cls = cls; }
+      var want = prev ? prev.nextSibling : tb.firstChild;
+      if (ent.tr !== want) tb.insertBefore(ent.tr, want);
+      prev = ent.tr;
+    });
+    $('empty').hidden = list.length > 0;
+  }
+
+  // ---------- jobs ----------
+  var jobsSig = '';
+  function renderJobs() {
+    var jobs = state.jobs || [];
+    $('jobs').hidden = !jobs.length;
+    var sig = JSON.stringify(jobs.map(function (j) { return [j.name, j.state, j.detail, j.tokens]; }));
+    if (sig === jobsSig) return; jobsSig = sig;
+    var working = jobs.filter(function (j) { return j.state === 'working'; }).length;
+    $('jobs-sum').textContent = '后台任务 (' + jobs.length + ')' + (working ? ' · ' + working + ' 运行中' : '');
+    $('jobs-body').innerHTML = jobs.map(function (j) {
+      return '<div class="job"><span class="jn">' + esc(j.name || '?') + '</span><span class="js">' + esc(j.state || '') + '</span><span class="jd mono" title="' + esc(j.detail || '') + '">' + esc(j.detail || '') + '</span><span class="jt mono">' + (j.tokens ? fmtTok(j.tokens) + ' tok' : '') + '</span></div>';
+    }).join('');
+  }
+
+  // ---------- drawer ----------
+  var recapCache = {};       // sid -> {recap, pending, err}
+  var recapTimer = null, drawerSig = '';
+
+  function kv(k, v, copy) {
+    if (v === null || v === undefined || v === '') v = '';
+    return '<span class="k">' + k + '</span><span class="v mono">' + (v ? esc(v) : '<span class="dimc">—</span>') + '</span>' +
+      (copy && v ? '<button class="cp" data-copy="' + esc(v) + '">复制</button>' : '<span></span>');
+  }
+  function recapHtml(sid) {
+    var rc = recapCache[sid], g = goals[sid];
+    var r = (rc && rc.recap) || (g && g.recap) || null;
+    var h = '';
+    if (r) {
+      h += '<div class="recap">';
+      if (r.done && r.done.length) h += '<div class="r"><span>已完成</span><ul>' + r.done.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
+      h += '<div class="r"><span>现在</span><span>' + esc(r.now || '—') + '</span></div>';
+      h += '<div class="r"><span>下一步</span><span>' + esc(r.next || '—') + '</span></div>';
+      if (r.blocked_on) h += '<div class="r"><span>卡在</span><span class="blocked">' + esc(r.blocked_on) + '</span></div>';
+      h += '</div>';
+    }
+    if (rc && rc.pending) h += '<div class="pending">' + (r ? '↻ 正在刷新 recap…' : '生成中…') + '</div>';
+    else if (!r) h += '<div class="pending">' + (rc && rc.err ? 'recap 不可用' : '暂无 recap') + '</div>';
+    return h;
+  }
+  function drawerHtml(s) {
+    var g = goals[s.session_id], d = s.diff;
+    var h = '';
+    h += '<h4>SPEC（首条指令）</h4><p>' + esc(s.spec || s.last_human_prompt || '—') + '</p>';
+    if (s.last_human_prompt && s.last_human_prompt !== s.spec) h += '<h4>最近一条指令</h4><p>' + esc(s.last_human_prompt) + '</p>';
+    h += '<h4>RECAP</h4><div id="d-recap">' + recapHtml(s.session_id) + '</div>';
+    h += '<h4>目标 / 收敛</h4>';
+    if (g) {
+      h += '<p><span class="gb ' + esc(g.status_badge) + '">' + esc(GOAL_LABEL[g.status_badge] || g.status_badge || '?') + '</span> ' + esc(g.goal || '尚未提取') + '</p>';
+      if (g.convergence_point) h += '<p style="margin-top:4px"><span class="dimc">收敛点：</span>' + esc(g.convergence_point) + '</p>';
+      if (g.reason) h += '<p style="margin-top:4px"><span class="dimc">判断：</span>' + esc(g.reason) + '</p>';
+    } else h += '<p class="dimc">无目标记录</p>';
+    h += '<h4>变更</h4><p>' + (d ? diffCell(s) : '<span class="dimc">—</span>') + '</p>';
+    if (s.todo_items && s.todo_items.length) {
+      h += '<h4>TODO (' + (s.todo_done || 0) + '/' + s.todo_total + ')</h4><ul>' + s.todo_items.map(function (t) {
+        var m = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : '○';
+        return '<li class="todo-i ' + esc(t.status) + '"><span class="st">' + m + '</span>' + esc(t.content) + '</li>';
+      }).join('') + '</ul>';
+    }
+    if (s.files_touched && s.files_touched.length) {
+      h += '<h4>涉及文件 (' + s.files_touched.length + ')</h4><ul class="files mono">' + s.files_touched.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>';
+    }
+    h += '<h4>环境</h4><div class="kv">' +
+      kv('cwd', s.cwd, true) + kv('branch', s.git_branch, true) + kv('model', s.model) +
+      kv('session', s.session_id, true) + kv('iTerm', s.iterm_location, true) + kv('pid', s.pid || '') +
+      kv('状态', PHASE_LABEL[s.phase] + ' ' + fmtAge(s._age) + (s.waiting_for ? ' · ' + s.waiting_for : '')) +
+      (s.transcript_path ? kv('transcript', s.transcript_path, true) : '') + '</div>';
+    return h;
+  }
+  function renderDrawer() {
+    var s = sessionById[selectedSid];
+    var open = !!selectedSid;
+    $('drawer').classList.toggle('open', open); $('scrim').classList.toggle('open', open);
+    if (!open) return;
+    if (!s) { $('d-title').textContent = '（session 已消失）'; return; }
+    $('d-title').innerHTML = esc(s.project_name) + ' <span class="dimc">/ ' + esc(s.name || '') + '</span> <span class="pill ' + s.phase + '" style="margin-left:6px">' + PHASE_LABEL[s.phase] + '</span>';
+    var html = drawerHtml(s);
+    if (html === drawerSig) return;
+    // don't clobber an active text selection inside the drawer
+    var sel = window.getSelection && window.getSelection();
+    if (sel && !sel.isCollapsed && $('d-body').contains(sel.anchorNode) && html !== drawerSig && drawerSig) return;
+    var top = $('d-body').scrollTop;
+    $('d-body').innerHTML = html; drawerSig = html; $('d-body').scrollTop = top;
+  }
+  function fetchRecap(sid) {
+    var url = MOCK ? 'dev/mock_recap.json' : '/api/recap?session_id=' + encodeURIComponent(sid);
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (MOCK) {  // emulate the endpoint from the fixture
+        var rc = (j.recaps || {})[sid] || null, pend = (j.pending || []).indexOf(sid) >= 0;
+        mockPolls[sid] = (mockPolls[sid] || 0) + 1;
+        if (pend && mockPolls[sid] < 3) j = { recap: null, pending: true };
+        else if (pend) j = { recap: { done: ['定位 savings 计算入口', '写了复现用例'], now: '修复金额汇总的重复计数', next: '跑全量用例后提交', blocked_on: null }, pending: false };
+        else j = { recap: rc, pending: false };
+      }
+      recapCache[sid] = { recap: j.recap || (recapCache[sid] && recapCache[sid].recap) || null, pending: !!j.pending };
+    }).catch(function () {
+      recapCache[sid] = { recap: (recapCache[sid] && recapCache[sid].recap) || null, pending: false, err: true };
+    });
+  }
+  var mockPolls = {};
+  function pollRecap(sid) {
+    clearTimeout(recapTimer);
+    fetchRecap(sid).then(function () {
+      if (sid !== selectedSid) return;
+      var el = $('d-recap'); if (el) { el.innerHTML = recapHtml(sid); }
+      drawerSig = '';  // force next full render to pick up latest
+      renderDrawer();
+      if (recapCache[sid] && recapCache[sid].pending) recapTimer = setTimeout(function () { pollRecap(sid); }, 2000);
+    });
+  }
+  function openDrawer(sid) {
+    selectedSid = sid; drawerSig = ''; $('d-body').scrollTop = 0;
+    recapCache[sid] = recapCache[sid] || { recap: null, pending: true };
+    renderDrawer(); renderTable();
+    pollRecap(sid);
+  }
+  function closeDrawer() {
+    selectedSid = null; clearTimeout(recapTimer); drawerSig = '';
+    renderDrawer(); renderTable();
+  }
+  $('tbody').addEventListener('click', function (e) {
+    var tr = e.target.closest('tr[data-sid]'); if (!tr) return;
+    if (window.getSelection && !window.getSelection().isCollapsed) return;   // user is selecting text
+    if (tr.dataset.sid === selectedSid) closeDrawer(); else openDrawer(tr.dataset.sid);
+  });
+  $('d-close').addEventListener('click', closeDrawer);
+  $('scrim').addEventListener('click', closeDrawer);
+  $('d-body').addEventListener('click', function (e) {
+    var b = e.target.closest('.cp'); if (!b) return;
+    var text = b.dataset.copy;
+    function ok() { b.classList.add('ok'); b.textContent = '已复制'; setTimeout(function () { b.classList.remove('ok'); b.textContent = '复制'; }, 1200); }
+    function fallback() {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); ok(); } catch (_) {}
+      ta.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+  });
+  document.addEventListener('keydown', function (e) {
+    var inField = /^(INPUT|TEXTAREA)$/.test((e.target.tagName || ''));
+    if (e.key === '/' && !inField && !e.metaKey && !e.ctrlKey) { e.preventDefault(); $('filter').focus(); $('filter').select(); }
+    else if (e.key === 'Escape') {
+      if (inField) { if ($('filter').value) { $('filter').value = ''; textFilter = ''; renderTable(); } e.target.blur(); }
+      else if (selectedSid) closeDrawer();
+    }
+  });
+
+  // ---------- connection indicator ----------
+  function renderConn() {
+    var el = $('conn');
+    if (lastErr) {
+      el.className = 'conn err';
+      el.innerHTML = '<i></i><span>连接失败' + (lastOk ? '（数据停在 ' + hhmmss(new Date(lastOk)) + '）' : '') + ' · ' + esc(lastErr) + '</span>';
+    } else if (lastOk) {
+      el.className = 'conn';
+      el.innerHTML = '<i></i><span>' + hhmmss(new Date(lastOk)) + (MOCK ? ' · mock' : '') + '</span>';
+    }
+  }
+
+  // ---------- refresh loop ----------
+  function applyData(st, gl) {
+    state.sessions = (st.sessions || []).map(norm);
+    state.jobs = st.jobs || [];
+    state.summary = st.summary || null;
+    goals = (gl && gl.goals) || {};
+    sessionById = {};
+    state.sessions.forEach(function (s) { sessionById[s.session_id] = s; });
+    renderChips(); renderTable(); renderJobs(); renderDrawer();
+  }
+  function getJSON(u) {
+    return fetch(u, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + u);
+      return r.json();
+    });
+  }
+  function tick() {
+    if (inflight) return; inflight = true;
+    Promise.all([getJSON(URLS.state), getJSON(URLS.goals).catch(function () { return { goals: goals }; })])
+      .then(function (r) {
+        lastOk = Date.now(); lastErr = null;
+        try { applyData(r[0], r[1]); } catch (err) { console.error(err); lastErr = '渲染出错: ' + err.message; }
+        renderConn();
+      })
+      .catch(function (err) { lastErr = err.message; renderConn(); })
+      .then(function () { inflight = false; });
+  }
+  tick();
+  setInterval(tick, 2000);
+  var om = /[?&]open=(\d+)/.exec(location.search);   // dev aid: ?open=N opens Nth row
+  if (om) { var tries = 0, iv = setInterval(function () { var r = $('tbody').children[+om[1]]; if (r) { clearInterval(iv); openDrawer(r.dataset.sid); } else if (++tries > 40) clearInterval(iv); }, 100); }
+})();
+</script>

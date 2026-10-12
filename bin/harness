@@ -8,6 +8,7 @@ harness — install / verify / attach the harness mechanism.
   harness context-init [PATH]   attach .context/ (insight journal) to a project
   harness status [PATH]         show the resolved config for a directory
   harness oplog [PATH]          show the change log (what was written / moved / applied)
+  harness tracker [serve|scan]  read-only dashboard over every .harness/ (127.0.0.1:8787)
   harness uninstall [--dry-run] remove harness hooks and settings entries
 
 Never rewrites anything in settings.json other than the harness entries, and
@@ -28,6 +29,7 @@ HOOKS_SRC = REPO / "hooks"
 SKILLS_SRC = REPO / "skills"
 TEMPLATES = REPO / "templates"
 MANIFEST = REPO / "install" / "hooks-manifest.json"
+TRACKER = REPO / "tracker"
 
 HOME = Path(os.path.expanduser("~"))
 CLAUDE = HOME / ".claude"
@@ -226,8 +228,39 @@ def cmd_doctor(args):
     else:
         say(OK, "no harness project in this directory (global defaults apply)")
 
+    check_scopes()
+
     print(f"\n{_failures} failure(s)\n")
     return 1 if _failures else 0
+
+
+def check_scopes():
+    """tracker.roots 下所有 .harness/scope/*.yml：解析失败 = FAIL（tracker 读不到），字段问题 = WARN。"""
+    sys.path.insert(0, str(TRACKER))
+    try:
+        import specs  # noqa
+    except Exception as e:
+        say(WARN, f"scope check skipped: {e}")
+        return
+    if specs.yaml is None:
+        say(WARN, "scope check skipped: python3 has no PyYAML")
+        return
+    roots = specs.tracker_config.load()["roots"]
+    bad = specs.validate(roots)
+    n = sum(1 for _ in specs.iter_scope_files(roots))
+    for f, problem in bad:
+        say(FAIL if problem.startswith("YAML") else WARN, f"scope {f}: {problem}")
+    if not bad:
+        say(OK, f"{n} scope file(s) under {', '.join(map(str, roots))} parse and validate")
+
+
+def cmd_tracker(args):
+    """tracker：.harness/ 的只读旁路大盘。serve 起 HTTP（只绑 127.0.0.1），scan 只重建 scope 快照。"""
+    env = dict(os.environ)
+    if args.port:
+        env["HARNESS_TRACKER_PORT"] = str(args.port)
+    script = "specs.py" if args.action == "scan" else "server.py"
+    return subprocess.call([sys.executable, str(TRACKER / script)], cwd=str(TRACKER), env=env)
 
 
 def check_archive_tracked(root, cfg):
@@ -450,6 +483,11 @@ def main():
     p.add_argument("--since", help="ISO timestamp lower bound")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(fn=cmd_oplog)
+
+    p = sub.add_parser("tracker", help="read-only dashboard over every .harness/ (scopes + sessions)")
+    p.add_argument("action", nargs="?", choices=["serve", "scan"], default="serve")
+    p.add_argument("--port", type=int)
+    p.set_defaults(fn=cmd_tracker)
 
     p = sub.add_parser("uninstall"); p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_uninstall)
 

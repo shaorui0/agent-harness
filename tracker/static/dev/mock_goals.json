@@ -1,0 +1,412 @@
+{
+ "goals": {
+  "52e6b438-f2a7-4269-a651-0c5ca6a3a450": {
+   "goal": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T06:48:03Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+    "updated_at": "2026-10-12T06:48:03Z",
+    "source_mtime": 0.0
+   }
+  },
+  "8f6d0558-d0ed-4ae9-a2e4-94e31a61dbe2": {
+   "goal": "重写 README 的快速上手部分，补一个最小可运行示例",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T05:19:38Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+    "updated_at": "2026-10-12T05:19:38Z",
+    "source_mtime": 0.0
+   }
+  },
+  "49b64a08-9be4-4fae-a12b-830e1e398f10": {
+   "goal": "升级 Kubernetes 1.29 -> 1.30，先 dev 再 staging，写回滚预案",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T06:14:38Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+    "updated_at": "2026-10-12T06:14:38Z",
+    "source_mtime": 0.0
+   }
+  },
+  "fe3b890b-ae65-4d26-a721-b77448db40af": {
+   "goal": "给日志派生指标写 debug runbook",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T06:14:38Z"
+  },
+  "64e50cad-1a81-47b4-aa26-0fef66836886": {
+   "goal": "移动端上传队列：失败重试与后台恢复",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "abandoned",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "abandoned",
+   "updated_at": "2026-10-12T06:48:25Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:48:25Z",
+    "source_mtime": 0.0
+   }
+  },
+  "2607679d-a268-4409-af49-9a2e58ee8571": {
+   "goal": "弹性扩缩容控制器：补 E2E 验证脚本",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "converged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "converged",
+   "updated_at": "2026-10-12T06:41:28Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:41:28Z",
+    "source_mtime": 0.0
+   }
+  },
+  "5b0ee76f-c59d-4390-a885-c7708aa4248c": {
+   "goal": "整理架构决策记录（ADR）目录结构",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "converged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "converged",
+   "updated_at": "2026-10-12T06:43:56Z"
+  },
+  "7b8f2ab5-9fc2-4fc3-ae67-d7269c3a23cd": {
+   "goal": "分析慢查询根因，验证分区剪枝收益",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "converged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "converged",
+   "updated_at": "2026-10-12T06:41:23Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:41:23Z",
+    "source_mtime": 0.0
+   }
+  },
+  "8825ae56-26de-4860-a82b-df7004c9d78d": {
+   "goal": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "abandoned",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "abandoned",
+   "updated_at": "2026-10-12T06:36:18Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:36:18Z",
+    "source_mtime": 0.0
+   }
+  },
+  "81fc069e-f106-43f6-ab2f-e06485f1115b": {
+   "goal": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "extract_failed",
+   "updated_at": "2026-10-12T06:40:01Z"
+  },
+  "f3d74f82-1818-465f-ae28-29ac7cbd1f5a": {
+   "goal": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T06:46:48Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:46:48Z",
+    "source_mtime": 0.0
+   }
+  },
+  "fc2e6a59-eb25-4c9d-a3a8-e05bf8c110fb": {
+   "goal": "重写 README 的快速上手部分，补一个最小可运行示例",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "diverged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "diverged",
+   "updated_at": "2026-10-12T06:48:07Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T06:48:07Z",
+    "source_mtime": 0.0
+   }
+  },
+  "cdbde747-04a6-4fe9-a401-03ed09758340": {
+   "goal": "给日志派生指标写 debug runbook",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T06:37:03Z"
+  },
+  "15a0cce6-aa4c-4d75-a618-8185dedb9109": {
+   "goal": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "diverged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "diverged",
+   "updated_at": "2026-10-12T02:20:05Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T02:20:05Z",
+    "source_mtime": 0.0
+   }
+  },
+  "61b2480c-1579-4798-a476-a7f080b5244a": {
+   "goal": "移动端上传队列：失败重试与后台恢复",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "extract_failed",
+   "updated_at": "2026-10-11T21:33:20Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-11T21:33:20Z",
+    "source_mtime": 0.0
+   }
+  },
+  "9e6397d4-a4aa-4250-a0b3-d5d5d329d65c": {
+   "goal": "弹性扩缩容控制器：补 E2E 验证脚本",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "diverged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "diverged",
+   "updated_at": "2026-10-11T22:55:48Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-11T22:55:48Z",
+    "source_mtime": 0.0
+   }
+  },
+  "222930ae-0331-47b7-a0f8-44ce7c5d42dc": {
+   "goal": "分析慢查询根因，验证分区剪枝收益",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "diverged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "diverged",
+   "updated_at": "2026-10-12T02:46:52Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T02:46:52Z",
+    "source_mtime": 0.0
+   }
+  },
+  "63087e52-35b7-4eaa-af21-35f1ee379c65": {
+   "goal": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "extract_failed",
+   "updated_at": "2026-10-12T05:06:00Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T05:06:00Z",
+    "source_mtime": 0.0
+   }
+  },
+  "24056360-6a8a-4580-a604-1ef350ea7da7": {
+   "goal": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T00:50:09Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T00:50:09Z",
+    "source_mtime": 0.0
+   }
+  },
+  "d5ad5360-a977-4491-aa28-261fef82d1a3": {
+   "goal": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "diverged",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "diverged",
+   "updated_at": "2026-10-11T22:48:09Z"
+  },
+  "8e4dc3a3-1751-451b-a3d3-42235e49422a": {
+   "goal": "重写 README 的快速上手部分，补一个最小可运行示例",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "abandoned",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "abandoned",
+   "updated_at": "2026-10-11T23:00:14Z"
+  },
+  "a5529b05-7223-46e8-af43-d9434fe04802": {
+   "goal": "升级 Kubernetes 1.29 -> 1.30，先 dev 再 staging，写回滚预案",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T01:57:26Z"
+  },
+  "c6e0673a-0a1f-4005-ac84-3b8a202ab6fa": {
+   "goal": "给日志派生指标写 debug runbook",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": true,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T01:58:34Z"
+  },
+  "02ad9d2b-8998-44d3-aff1-475275efd233": {
+   "goal": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+   "convergence_point": "CI 全绿且 diff 已 review，无遗留 TODO",
+   "is_continuation": false,
+   "verdict": "open",
+   "reason": "最近 20 轮在改文档文案，与原目标（修复登录接口）无关",
+   "status_badge": "progress",
+   "updated_at": "2026-10-12T02:25:56Z",
+   "recap": {
+    "done": [
+     "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+     "补了 3 个单测",
+     "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+    ],
+    "now": "告警降噪：把常态 firing 的告警按归因分组",
+    "next": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+    "blocked_on": null,
+    "updated_at": "2026-10-12T02:25:56Z",
+    "source_mtime": 0.0
+   }
+  }
+ }
+}

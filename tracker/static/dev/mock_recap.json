@@ -1,0 +1,199 @@
+{
+ "recaps": {
+  "52e6b438-f2a7-4269-a651-0c5ca6a3a450": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+   "updated_at": "2026-10-12T06:48:03Z",
+   "source_mtime": 0.0
+  },
+  "8f6d0558-d0ed-4ae9-a2e4-94e31a61dbe2": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+   "updated_at": "2026-10-12T05:19:38Z",
+   "source_mtime": 0.0
+  },
+  "49b64a08-9be4-4fae-a12b-830e1e398f10": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略",
+   "updated_at": "2026-10-12T06:14:38Z",
+   "source_mtime": 0.0
+  },
+  "64e50cad-1a81-47b4-aa26-0fef66836886": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:48:25Z",
+   "source_mtime": 0.0
+  },
+  "2607679d-a268-4409-af49-9a2e58ee8571": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:41:28Z",
+   "source_mtime": 0.0
+  },
+  "7b8f2ab5-9fc2-4fc3-ae67-d7269c3a23cd": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:41:23Z",
+   "source_mtime": 0.0
+  },
+  "8825ae56-26de-4860-a82b-df7004c9d78d": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:36:18Z",
+   "source_mtime": 0.0
+  },
+  "f3d74f82-1818-465f-ae28-29ac7cbd1f5a": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:46:48Z",
+   "source_mtime": 0.0
+  },
+  "fc2e6a59-eb25-4c9d-a3a8-e05bf8c110fb": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T06:48:07Z",
+   "source_mtime": 0.0
+  },
+  "15a0cce6-aa4c-4d75-a618-8185dedb9109": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T02:20:05Z",
+   "source_mtime": 0.0
+  },
+  "61b2480c-1579-4798-a476-a7f080b5244a": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-11T21:33:20Z",
+   "source_mtime": 0.0
+  },
+  "9e6397d4-a4aa-4250-a0b3-d5d5d329d65c": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-11T22:55:48Z",
+   "source_mtime": 0.0
+  },
+  "222930ae-0331-47b7-a0f8-44ce7c5d42dc": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T02:46:52Z",
+   "source_mtime": 0.0
+  },
+  "63087e52-35b7-4eaa-af21-35f1ee379c65": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T05:06:00Z",
+   "source_mtime": 0.0
+  },
+  "24056360-6a8a-4580-a604-1ef350ea7da7": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T00:50:09Z",
+   "source_mtime": 0.0
+  },
+  "02ad9d2b-8998-44d3-aff1-475275efd233": {
+   "done": [
+    "修复登录接口在 token 过期时返回 500 的问题，并补回归测试",
+    "补了 3 个单测",
+    "把 CI 从 Jenkins 迁到 GitHub Actions，保持现有缓存策略"
+   ],
+   "now": "排查 staging 上 API 网关 P99 延迟突刺，给出是后端还是网络",
+   "next": "给订单服务加 Prometheus 指标：请求量、错误率、P99",
+   "blocked_on": null,
+   "updated_at": "2026-10-12T02:25:56Z",
+   "source_mtime": 0.0
+  }
+ },
+ "pending": [
+  "修复登录接口在 token 过期时返回 500 的问题，并补回归测试"
+ ]
+}

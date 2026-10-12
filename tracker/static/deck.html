@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec over Session</title>
+<style>
+:root{
+  --bg:#f6f4ef; --ink:#1d1f24; --mute:#6b6f78; --line:#d9d5cc; --card:#fffdf8;
+  --accent:#b4541a; --pass:#2f7d4a; --fail:#b3261e; --unk:#8a6d00; --blue:#2a5d9f;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15171b; --ink:#e9e6df; --mute:#9a9ea7; --line:#2c3038; --card:#1c1f25;
+  --accent:#e08a4f; --pass:#5fbf7f; --fail:#ef6b62; --unk:#d9b84a; --blue:#7aa7e6;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:16px/1.55 -apple-system,"PingFang SC","Hiragino Sans GB",system-ui,sans-serif}
+.deck{position:fixed;inset:0;display:grid;place-items:center}
+.slide{display:none;width:min(100vw,calc(100vh*16/9));aspect-ratio:16/9;padding:4.2% 5.5%;
+  position:relative;overflow:hidden;font-size:clamp(11px,1.45vw,26px)}
+.slide.on{display:flex;flex-direction:column}
+.kicker{font:600 .72em var(--mono);letter-spacing:.12em;color:var(--accent);text-transform:uppercase;margin-bottom:.6em}
+h1{font-size:2.5em;line-height:1.15;margin:0 0 .4em;letter-spacing:-.01em}
+h2{font-size:1.65em;line-height:1.2;margin:0 0 .7em}
+p{margin:.3em 0}
+.lead{font-size:1.12em;color:var(--mute);max-width:40em}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.4em;align-items:start}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:1em}
+#liveStats .card{padding:.5em 1em} #liveStats .big{font-size:2.2em}
+#liveTable{font-size:.62em} #liveTable td{white-space:nowrap;padding:.22em .5em} #liveTable td.tag{max-width:30em;overflow:hidden;text-overflow:ellipsis}
+.card{background:var(--card);border:1px solid var(--line);border-radius:.5em;padding:.9em 1.1em}
+.card h3{margin:0 0 .4em;font-size:1em}
+.card.bad{border-top:.25em solid var(--fail)} .card.good{border-top:.25em solid var(--pass)}
+.card.acc{border-top:.25em solid var(--accent)}
+ul{margin:.2em 0;padding-left:1.1em} li{margin:.18em 0}
+.small{font-size:.8em;color:var(--mute)}
+.mono{font-family:var(--mono);font-size:.88em}
+table{border-collapse:collapse;width:100%;font-size:.78em}
+th,td{text-align:left;padding:.35em .55em;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600;font-size:.9em}
+.pill{display:inline-block;padding:.05em .5em;border-radius:1em;font:600 .78em var(--mono);border:1px solid currentColor}
+.PASS,.CLEARED{color:var(--pass)} .FAIL,.NOT_CLEARED{color:var(--fail)}
+.UNKNOWN,.DONE_WITH_CONCERNS,.none{color:var(--unk)}
+.big{font-size:3.2em;font-weight:700;line-height:1;font-family:var(--mono)}
+.formula{font-family:var(--mono);background:var(--card);border:1px solid var(--line);border-radius:.4em;
+  padding:.6em .9em;margin:.6em 0;font-size:.95em}
+.quote{border-left:.2em solid var(--accent);padding-left:.9em;font-size:1.15em;margin:.8em 0}
+svg text{fill:var(--ink);font-family:-apple-system,"PingFang SC",sans-serif}
+svg .m{fill:var(--mute)} svg .a{fill:var(--accent)}
+svg .box{fill:var(--card);stroke:var(--line);stroke-width:2}
+svg .arr{stroke:var(--accent);stroke-width:2.5;fill:none;marker-end:url(#ah)}
+.foot{position:absolute;left:5.5%;right:5.5%;bottom:2.2%;display:flex;justify-content:space-between;
+  font:.62em var(--mono);color:var(--mute)}
+.bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);transition:width .2s}
+.hint{position:fixed;right:12px;bottom:10px;font:11px var(--mono);color:var(--mute)}
+.tableWrap{overflow:auto;flex:1;min-height:0}
+.tag{font:.72em var(--mono);color:var(--mute)}
+@media print{.slide{display:flex!important;page-break-after:always}.bar,.hint{display:none}}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide">
+  <div style="margin:auto 0">
+    <div class="kicker">Spec Tracker · 2026-10-12</div>
+    <h1>从「追 session」<br>到「追 spec」</h1>
+    <p class="lead">session 开多了，我一直在追它们的 context：先让 agent 做，做完再回头学它干了什么、验了什么、还差什么。<br>这是本末倒置。</p>
+  </div>
+  <div class="foot"><span>agent-harness/tracker</span><span>← → 翻页</span></div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="kicker">01 · 问题</div>
+  <h2>人在给 agent 当「人工状态管理器」</h2>
+  <div class="grid2">
+    <div class="card bad">
+      <h3>模式 A：先执行，后理解（现在）</h3>
+      <ul>
+        <li>给一个模糊任务</li>
+        <li>agent 自主探索、改代码、跑命令</li>
+        <li>产出大量代码 / 日志 / 执行记录</li>
+        <li><b>人回头重读 context</b>，判断它做对没有</li>
+      </ul>
+      <p class="small">执行成本被压缩了，理解与验证成本被推迟、并持续累积。</p>
+    </div>
+    <div class="card good">
+      <h3>模式 B：先定义，再执行（要的）</h3>
+      <ul>
+        <li>先写 spec：目标、边界、验收条件</li>
+        <li>agent 声明计划与验证方法</li>
+        <li>分阶段执行，每阶段产出<b>证据</b></li>
+        <li>人只看偏差、关键决策和证据</li>
+      </ul>
+      <p class="small">差别不在「有没有计划」，而在人是<b>事后重建事实</b>，还是<b>事前定义什么算对</b>。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="kicker">02 · 真正的瓶颈</div>
+  <h2>不是 context window，是人的控制带宽</h2>
+  <div class="formula">C<sub>total</sub> = C<sub>execution</sub> + <b>C<sub>understanding</sub> + C<sub>verification</sub> + C<sub>recovery</sub></b></div>
+  <p>AI 直接压低的只有第一项。后三项不会自动下降，session 越多反而越高。</p>
+  <div class="formula">agent 执行吞吐量 &nbsp;&gt;&nbsp; 人的理解与验证吞吐量 &nbsp;⇒&nbsp; 未被理解、未被验证的变化持续堆积</div>
+  <div class="quote">该优化的指标：<b>每一单位人类注意力，换来多少「有证据、可安全接受」的工程进展。</b></div>
+  <p class="small">例：agent 20 分钟写完一个数据库扩缩容功能；我花 40 分钟读代码、查它改了哪些配置、模拟器覆盖了什么、有没有碰真集群。</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="kicker">03 · 为什么实时监控不是答案</div>
+  <h2>claude_monitor 回答的是「在不在跑」，不是「对不对」</h2>
+  <div class="grid2">
+    <div>
+      <table>
+        <tr><th></th><th>claude_monitor（今天做的 v2）</th><th>需要的</th></tr>
+        <tr><td>对象</td><td>session / 进程</td><td>task / spec</td></tr>
+        <tr><td>问题</td><td>跑完没？卡住没？</td><td>验收条件满足了几条？</td></tr>
+        <tr><td>recap</td><td>事后让 Haiku 重建「做了啥」</td><td>事前就有 spec，事后只对照</td></tr>
+        <tr><td>diff</td><td>改了哪些文件</td><td>与 spec 的差距</td></tr>
+        <tr><td>生命周期</td><td>session 关了就没了</td><td>跨 session 持久</td></tr>
+      </table>
+    </div>
+    <div class="card acc">
+      <h3>定位</h3>
+      <p><b>claude_monitor = kubelet / liveness probe。</b>告诉你哪个 pod 活着、哪个在等输入。有用，但它是底层。</p>
+      <p style="margin-top:.6em"><b>Spec Tracker = <span class="mono">kubectl get</span> 的那一层。</b>看的是 desired vs observed。</p>
+      <p style="margin-top:.6em" class="small">recap 再准，也是「事后重建」，仍属于模式 A。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="kicker">04 · 核心模型</div>
+  <h2>借 K8s：Spec / Status / Diff / Reconcile</h2>
+  <svg viewBox="0 0 1000 330" style="width:100%;flex:1">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--accent)"/></marker></defs>
+    <rect class="box" x="20" y="40" width="200" height="110" rx="10"/>
+    <text x="120" y="80" text-anchor="middle" font-weight="700" font-size="22">Spec</text>
+    <text x="120" y="108" text-anchor="middle" class="m" font-size="15">desired state</text>
+    <text x="120" y="130" text-anchor="middle" class="m" font-size="13">目标 · 边界 · 验收条件</text>
+    <rect class="box" x="270" y="40" width="200" height="110" rx="10"/>
+    <text x="370" y="80" text-anchor="middle" font-weight="700" font-size="22">Observe</text>
+    <text x="370" y="108" text-anchor="middle" class="m" font-size="15">actual state</text>
+    <text x="370" y="130" text-anchor="middle" class="m" font-size="13">代码 · 配置 · 测试 · 环境</text>
+    <rect class="box" x="520" y="40" width="200" height="110" rx="10"/>
+    <text x="620" y="80" text-anchor="middle" font-weight="700" font-size="22">Diff</text>
+    <text x="620" y="108" text-anchor="middle" class="m" font-size="15">PASS / FAIL / UNKNOWN</text>
+    <text x="620" y="130" text-anchor="middle" class="m" font-size="13">每条验收条件</text>
+    <rect class="box" x="770" y="40" width="210" height="110" rx="10"/>
+    <text x="875" y="80" text-anchor="middle" font-weight="700" font-size="22">Reconcile</text>
+    <text x="875" y="108" text-anchor="middle" class="m" font-size="15">act</text>
+    <text x="875" y="130" text-anchor="middle" class="m" font-size="13">修偏差 · 补证据 · 请求决策</text>
+    <path class="arr" d="M222,95 L266,95"/><path class="arr" d="M472,95 L516,95"/><path class="arr" d="M722,95 L766,95"/>
+    <path class="arr" d="M875,152 C875,230 370,230 370,156"/>
+    <text x="620" y="252" text-anchor="middle" class="a" font-size="15">再观察，直到全部 PASS，或明确停止原因</text>
+    <text x="500" y="290" text-anchor="middle" font-size="17">Status 不是 agent 写下的 <tspan class="a" font-family="ui-monospace,Menlo,monospace">status: completed</tspan>，而是<tspan font-weight="700">从证据推出来的结论</tspan>。</text>
+  </svg>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="kicker">05 · 证据</div>
+  <h2>Evidence over narration</h2>
+  <div class="grid3">
+    <div class="card"><span class="pill PASS">PASS</span><p>已有符合要求的证据，证明条件满足</p></div>
+    <div class="card"><span class="pill FAIL">FAIL</span><p>已有证据，证明条件不满足</p></div>
+    <div class="card"><span class="pill UNKNOWN">UNKNOWN</span><p>没有足够证据——包括「还没验」。<br><b>没测 ≠ 失败，更不等于通过。</b></p></div>
+  </div>
+  <div class="formula" style="margin-top:1em">Valid Evidence = Matching Version ∧ Passed Check ∧ Satisfied Preconditions</div>
+  <ul>
+    <li>「测试通过」是声明；能关联到 <b>commit + 命令 + 退出码 + 环境</b> 的测试结果才是证据</li>
+    <li>review 之后 covers 路径上又有新 commit → 之前的 PASS <b>不再无条件有效</b></li>
+    <li>能交给 CI / 脚本 / 模拟器验证的，就不交给 agent 的自我评价</li>
+  </ul>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="kicker">06 · Session ≠ Task</div>
+  <h2>一个 session 多个任务，一个任务跨多个 session</h2>
+  <div class="grid2">
+    <div>
+      <table>
+        <tr><th>这轮输入是</th><th>例子</th><th>动作</th></tr>
+        <tr><td>普通讨论</td><td>解释存算分离架构</td><td>直接回答，不建任务</td></tr>
+        <tr><td>任务细化</td><td>给扩缩容加冷启动验收</td><td>更新现有 spec</td></tr>
+        <tr><td>任务继续</td><td>继续刚才的状态机</td><td>恢复任务，先核对 status</td></tr>
+        <tr><td>新的独立任务</td><td>顺便修个告警规则</td><td>新建任务记录</td></tr>
+        <tr><td>探索</td><td>比较两种扩缩容设计</td><td>存结论，决定做了再建任务</td></tr>
+        <tr><td>重大变更</td><td>改架构 / 权限 / 验收目标</td><td>暂停，先改 spec 并确认</td></tr>
+      </table>
+      <p class="small">由 Task Router 判断这轮输入与已有任务的关系；有歧义、且两种理解会导致不同改动时，先问。</p>
+    </div>
+    <div class="card acc">
+      <h3>两层状态分开存</h3>
+      <p><b>Session state</b>（临时）<br><span class="small">session_id、当前激活的 task_id、最近用过的任务</span></p>
+      <p style="margin-top:.6em"><b>Task state</b>（持久）<br><span class="small">spec、验收结果、证据、偏差、下一步</span></p>
+      <p style="margin-top:.8em">关掉 Claude Code，任务不丢；同一个 session 里换话题，旧任务不被覆盖。</p>
+      <p class="quote" style="margin-top:.8em;font-size:1em">不是每句话都要成为任务；<br>是每个会改变工程状态的任务，都必须可追踪。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="kicker">07 · 分级，别搞成仪式</div>
+  <h2>按风险分级，映射到已有工具</h2>
+  <table style="font-size:.9em">
+    <tr><th>级别</th><th>场景</th><th>要求</th><th>用现有的什么</th></tr>
+    <tr><td><b>L0</b></td><td>讨论、探索</td><td>不建任务，必要时记结论</td><td>—</td></tr>
+    <tr><td><b>L1</b></td><td>局部 bug、小配置</td><td>目标 + 范围 + 验证方法 + 结果</td><td>轻量 scope（2–3 条 AC）<span class="tag"> ← 缺</span></td></tr>
+    <tr><td><b>L2</b></td><td>多模块、状态机、跨 session</td><td>完整 spec + 任务分解 + 验证</td><td><span class="mono">harness-scope-gate</span> + <span class="mono">harness-openspec</span></td></tr>
+    <tr><td><b>L3</b></td><td>生产、不可逆、敏感权限</td><td>spec + 审批 + 独立验证</td><td>scope + <span class="mono">protected_paths</span> gate + 人工批准</td></tr>
+  </table>
+  <ul style="margin-top:1em">
+    <li>L1 长成 L2 时<b>升级原记录</b>，不另起一套</li>
+    <li>spec 可以改，但必须显式改、写明原因；<b>不能因为难做就悄悄降低验收标准</b></li>
+    <li>真正的安全边界靠权限和 gate，不靠 skill 里的一句提示词</li>
+  </ul>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="kicker">08 · 盘点</div>
+  <h2>其实已经有一半了</h2>
+  <div class="grid2">
+    <div class="card good">
+      <h3>已有</h3>
+      <ul>
+        <li><span class="mono">.harness/scope/*.yml</span>：goal / non_goals / acceptance_criteria / covers / risk_budget → <b>就是 Spec</b></li>
+        <li><span class="mono">harness-spec-review</span>：无上下文 reviewer 判 CLEARED / NOT_CLEARED → <b>粗粒度 Status</b></li>
+        <li><span class="mono">oplog.jsonl</span>：每次写操作带 session_id + git head → <b>执行轨迹</b></li>
+        <li><span class="mono">STATE.md</span> / journal：项目级当前事实</li>
+        <li><span class="mono">harness-openspec</span>：L2 的任务分解</li>
+      </ul>
+    </div>
+    <div class="card bad">
+      <h3>缺</h3>
+      <ul>
+        <li><b>逐条 AC 的 PASS/FAIL/UNKNOWN + 绑定版本的证据</b>：现在 review 打的是 spec 整体分（completeness / clarity…）</li>
+        <li><b>跨仓库的统一视图</b>：scope 散在各仓，spec-review 是纯 pull，没人主动看全局</li>
+        <li><b>session → task 绑定</b>：oplog 有 session，scope 不知道哪些 session 在做它</li>
+        <li><b>Task Router</b>：scope-gate 是 opt-in，大部分活从没进过 scope</li>
+        <li><b>L1 轻量入口</b>：写一份 scope 门槛太高</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 live -->
+<section class="slide">
+  <div class="kicker">09 · 现在的真实状态（specs.py 快照）</div>
+  <h2 id="liveTitle">当前 spec 一览</h2>
+  <div class="grid3" id="liveStats" style="margin-bottom:.8em"></div>
+  <div class="tableWrap"><table id="liveTable"></table></div>
+  <p class="small" id="liveNote"></p>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <div class="kicker">10 · 要做的东西</div>
+  <h2>Spec Tracker：一个只读聚合器，不是新平台</h2>
+  <div class="grid2">
+    <div>
+      <ul>
+        <li><b>输入</b>：所有仓库的 <span class="mono">.harness/scope/*.yml</span>（事实来源不变）</li>
+        <li><b>Diff 完全由 git 算</b>：review 之后 covers 路径上的 commit 数 → 证据是否过期</li>
+        <li><b>视图</b>：一行一个 spec —— AC 通过 x/y、review 结论、drift、下一步、谁在做</li>
+        <li><b>不调 LLM，不改 scope</b>；写状态仍由 spec-review / agent 负责</li>
+      </ul>
+      <p style="margin-top:.8em" class="small">三个项目的关系：</p>
+      <table>
+        <tr><td><b>tracker · Tasks / Unscoped</b></td><td>desired vs observed（主视图）</td></tr>
+        <tr><td><b>tracker · Sessions（原 claude_monitor）</b></td><td>liveness：哪个 session 在跑 / 在等我</td></tr>
+        <tr><td><b>agent_control_plane</b></td><td>自主 agent 的 SLO / 预算 / gateway 治理</td></tr>
+      </table>
+    </div>
+    <div class="card acc">
+      <h3>四条原则</h3>
+      <ol style="padding-left:1.2em">
+        <li><b>Spec before execution</b>：先定义正确性，再允许执行</li>
+        <li><b>Evidence over narration</b>：信证据，不信 agent 的自述</li>
+        <li><b>State over session</b>：项目状态独立于对话历史</li>
+        <li><b>Control by exception</b>：人只看偏差、决策、高风险</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- 11a -->
+<section class="slide">
+  <div class="kicker">10b · 这个项目到底服务什么</div>
+  <h2>五种能力 = 一个任务生命周期的五段</h2>
+  <svg viewBox="0 0 1000 120" style="width:100%;height:auto;margin-bottom:.4em">
+    <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--accent)"/></marker></defs>
+    <g font-size="17" text-anchor="middle">
+      <rect class="box" x="5" y="20" width="170" height="70" rx="8"/><text x="90" y="50" font-weight="700">Spec</text><text x="90" y="74" class="m" font-size="13">Problem Framing</text>
+      <rect class="box" x="210" y="20" width="170" height="70" rx="8"/><text x="295" y="50" font-weight="700">Context</text><text x="295" y="74" class="m" font-size="13">Context Engineering</text>
+      <rect class="box" x="415" y="20" width="170" height="70" rx="8"/><text x="500" y="50" font-weight="700">Execute</text><text x="500" y="74" class="m" font-size="13">Harness Engineering</text>
+      <rect class="box" x="620" y="20" width="170" height="70" rx="8"/><text x="705" y="50" font-weight="700">Evidence</text><text x="705" y="74" class="m" font-size="13">Verification Eng.</text>
+      <rect class="box" x="825" y="20" width="170" height="70" rx="8"/><text x="910" y="50" font-weight="700">Delivery</text><text x="910" y="74" class="m" font-size="13">Delivery Ownership</text>
+    </g>
+    <g stroke="var(--accent)" stroke-width="2.5" fill="none" marker-end="url(#ah2)">
+      <path d="M177,55 L206,55"/><path d="M382,55 L411,55"/><path d="M587,55 L616,55"/><path d="M792,55 L821,55"/>
+    </g>
+  </svg>
+  <table style="font-size:.74em">
+    <tr><th>能力</th><th>Build 什么（落在哪）</th><th>Tracker 每个任务量什么（可从文件算出）</th></tr>
+    <tr><td><b>Problem Framing</b></td><td>scope yml：goal / non_goals / AC；每条 AC 带 <span class="mono">verify:</span> 命令</td><td><b>AC 可执行率</b>：带 verify 命令的 AC 占比；spec 显式修订次数</td></tr>
+    <tr><td><b>Context Engineering</b></td><td>任务状态即上下文：SessionStart 注入 active task；STATE.md；skills / memory 检索</td><td><b>恢复成本</b>：新 session 第一个有效动作前花的轮数 / token；compact 次数；「做到哪了」类追问次数</td></tr>
+    <tr><td><b>Harness Engineering</b></td><td>任务状态机（draft→confirmed→in_progress→verifying→cleared/blocked）、hooks、envelope、恢复</td><td><b>绑定率</b>：带 task 的写操作占比；<b>中断续接成功率</b>：杀掉 session 后新 session 能否接上</td></tr>
+    <tr><td><b>Verification Engineering</b></td><td><span class="mono">ac_results</span> + 绑定 commit 的证据；独立 reviewer（spec-review）；CI / 模拟器</td><td><b>有效证据率</b>；<b>过期 PASS 数</b>（review 后 covers 有 commit）；绿灯翻红次数</td></tr>
+    <tr><td><b>Delivery Ownership</b></td><td>交付记录：改了什么、花了多少、落地后怎样；归档进 scope</td><td><b>每任务成本</b>（token / 时长 / session 数）；落地后回滚 / 事故；交付记录完整率</td></tr>
+  </table>
+  <p class="small" style="margin-top:.5em">项目定位：<b>既是这五种能力的实践载体（build 协议），也是它们的记分板（track 指标）</b>。哪一列长期红，就是下一步该补的能力。</p>
+</section>
+
+<!-- 11b -->
+<section class="slide">
+  <div class="kicker">10c · 嵌进 Claude Code</div>
+  <h2>入口还是 Claude Code：扩现有 hook，不加新系统</h2>
+  <table style="font-size:.76em">
+    <tr><th>时机</th><th>现有挂点</th><th>加什么</th><th>服务的能力</th></tr>
+    <tr><td>打开 session</td><td class="mono">harness-session-start.py</td><td>注入本仓 active task（≤5 行：名字 · AC x/y · 下一步）</td><td>Context</td></tr>
+    <tr><td>每轮输入</td><td class="mono">harness-prompt-contract.py</td><td>一行 Task Router 提示：要改工程状态，先绑定或新建 task</td><td>Framing</td></tr>
+    <tr><td>每次写操作</td><td class="mono">harness-oplog.py</td><td>oplog 记录带上 <span class="mono">task</span>（读 session 的 active_task）</td><td>Harness</td></tr>
+    <tr><td>写受保护路径</td><td class="mono">harness-envelope.py / scope-gate.py</td><td>不变；L3 才强制</td><td>Harness</td></tr>
+    <tr><td>本轮结束</td><td class="mono">harness-stop-contract.py</td><td>改了 covers 内文件但 task 状态没更新 → 提醒（不阻断）</td><td>Verification</td></tr>
+    <tr><td>一直可见</td><td class="mono">statusline-command.sh</td><td>状态栏显示 <span class="mono">[task · AC 3/6 · ⚠drift]</span></td><td>Context</td></tr>
+  </table>
+  <div class="grid2" style="margin-top:.8em">
+    <div class="card"><h3>新增的命令（只两个）</h3>
+      <p><span class="mono">/task</span> new · bind · status · done —— 建 L1 scope、切换当前任务</p>
+      <p><span class="mono">/verify</span> —— 跑各 AC 的 verify 命令，写回 <span class="mono">ac_results</span>（附 commit + 退出码）</p>
+      <p class="small">L2 仍走 <span class="mono">/harness-scope-gate</span> + <span class="mono">/harness-openspec</span>；验收仍走 <span class="mono">/harness-spec-review</span></p></div>
+    <div class="card acc"><h3>日常体验</h3>
+      <p>开 session → 状态栏就看到当前任务和差几条 AC；说「继续」→ 直接接上；收尾 → <span class="mono">/verify</span>。</p>
+      <p class="small">跨仓总览和每周回顾才打开 tracker 页面；Sessions tab 只在开很多窗口时看谁在等我。</p></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <div class="kicker">11 · MVP 与验收</div>
+  <h2>怎么算做成了</h2>
+  <div class="quote">关掉所有 session，明天打开项目，几分钟内能说清：当前状态、哪些验收已过、还有什么风险、下一步是什么——而且每一条都能追到真实证据。</div>
+  <div class="grid2" style="margin-top:.6em">
+    <div>
+      <h3 style="margin:.2em 0">分阶段</h3>
+      <ol style="padding-left:1.2em">
+        <li>只读聚合 + 五能力记分板 <span class="tag">（本项目，已起步）</span></li>
+        <li>AC 带 <span class="mono">verify:</span>，<span class="mono">/verify</span> 写 <span class="mono">ac_results</span>（Framing + Verification）</li>
+        <li><span class="mono">/task</span> + oplog 带 task + 状态栏（Harness + Context）</li>
+        <li>交付记录与每任务成本（Delivery）</li>
+      </ol>
+    </div>
+    <div>
+      <h3 style="margin:.2em 0">衡量</h3>
+      <ul>
+        <li>context 恢复时间 ↓</li>
+        <li>status 与代码 / 测试实际一致的比例</li>
+        <li>已完成 AC 有有效证据的比例</li>
+        <li>我追问「你做了啥 / 测了啥 / 还差啥」的次数 ↓</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <div class="kicker">12 · 还没想清楚的</div>
+  <h2>需要拍板的四件事</h2>
+  <table style="font-size:.88em">
+    <tr><th>#</th><th>问题</th><th>倾向</th></tr>
+    <tr><td>Q1</td><td>逐条 AC 结果谁来写？</td><td>spec-review 写回 <span class="mono">ac_results</span>，agent 只能提交证据、不能自己判 PASS</td></tr>
+    <tr><td>Q2</td><td>session 和 task 的绑定存在哪？</td><td>oplog 每条加 <span class="mono">task</span> 字段；scope 不反向记录，由 tracker 聚合</td></tr>
+    <tr><td>Q3</td><td>L1 小任务用什么载体？</td><td>同一个 scope yml，只填 goal + 2–3 条 AC + covers；能升级成 L2</td></tr>
+    <tr><td>Q4</td><td>registry：扫描还是中心索引？</td><td>先扫描（零维护）；扫描慢或要跨机器时再加索引</td></tr>
+  </table>
+  <p class="small" style="margin-top:1em">原则：先冻结架构方向，剩下的未知项变成可验证的工程假设，在一个真实项目上试点，而不是继续停在抽象讨论里。</p>
+</section>
+
+</div>
+<div class="bar" id="bar"></div>
+<div class="hint" id="hint"></div>
+<script src="data/snapshot.js"></script>
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide')), i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach(function(s,k){s.classList.toggle('on',k===i)});
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('hint').textContent=(i+1)+' / '+slides.length;
+    try{history.replaceState(null,'','#'+(i+1))}catch(e){}
+  }
+  document.addEventListener('keydown',function(e){
+    if(['ArrowRight','PageDown',' ','ArrowDown'].indexOf(e.key)>=0){e.preventDefault();show(i+1)}
+    if(['ArrowLeft','PageUp','ArrowUp'].indexOf(e.key)>=0){e.preventDefault();show(i-1)}
+    if(e.key==='Home')show(0); if(e.key==='End')show(slides.length-1);
+  });
+  document.addEventListener('click',function(e){
+    if(e.target.closest('table,a'))return;
+    show(e.clientX>innerWidth/3?i+1:i-1);
+  });
+  show((parseInt(location.hash.slice(1),10)||1)-1);
+
+  // ---- live slide ----
+  var S=window.SNAPSHOT, stats=document.getElementById('liveStats'), tbl=document.getElementById('liveTable');
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  if(!S){stats.innerHTML='<div class="card">没有快照：先跑 <span class="mono">harness tracker scan</span></div>';return}
+  var sc=S.scopes, n=sc.length+S.errors.length;
+  var cleared=sc.filter(function(s){return s.review.status==='CLEARED'});
+  var stale=cleared.filter(function(s){return (s.drift.commits_after_review||0)>0});
+  var unreviewed=sc.filter(function(s){return !s.review.status});
+  var withAc=sc.filter(function(s){return s.ac_results&&s.ac_results.length});
+  document.getElementById('liveTitle').textContent=n+' 个 spec，'+cleared.length+' 个绿灯里有 '+stale.length+' 个可能已经过期';
+  stats.innerHTML=
+    '<div class="card"><div class="big">'+n+'</div><div class="small">scope 总数（'+S.errors.length+' 个 YAML 解析失败）</div></div>'+
+    '<div class="card"><div class="big FAIL">'+stale.length+'/'+cleared.length+'</div><div class="small">CLEARED 之后 covers 路径上又有 commit → 证据未必还成立</div></div>'+
+    '<div class="card"><div class="big UNKNOWN">'+withAc.length+'</div><div class="small">有逐条 AC 结果的 spec（现在全是 UNKNOWN 粒度）</div></div>';
+  var rows='<tr><th>repo</th><th>spec</th><th>AC</th><th>review</th><th>review 后 commit</th><th>最近一次改动</th></tr>';
+  sc.slice().sort(function(a,b){return (b.drift.commits_after_review||0)-(a.drift.commits_after_review||0)}).forEach(function(s){
+    var rv=s.review.status||'none', d=s.drift.commits_after_review;
+    rows+='<tr><td class="tag">'+esc(s.repo)+'</td><td><b>'+esc(s.name)+'</b></td><td class="mono">'+s.acceptance_criteria.length+'</td>'+
+      '<td><span class="pill '+rv+'">'+(s.review.status?esc(rv):'未 review')+'</span></td>'+
+      '<td class="mono '+(d>0&&rv==='CLEARED'?'FAIL':'')+'">'+(d==null?'—':d)+'</td>'+
+      '<td class="tag">'+esc((s.drift.last_commit||'—').slice(0,60))+'</td></tr>';
+  });
+  S.errors.forEach(function(e){rows+='<tr><td class="tag">—</td><td><b>'+esc(e.file.split('/').pop())+'</b></td><td colspan="4" class="FAIL small">YAML 解析失败</td></tr>'});
+  tbl.innerHTML=rows;
+  document.getElementById('liveNote').textContent='快照时间 '+S.generated_at.slice(0,16).replace('T',' ')+' UTC · 重新生成：harness tracker scan';
+})();
+</script>
+</body>
+</html>

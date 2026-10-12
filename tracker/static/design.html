@@ -99,7 +99,7 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 <p class="lead">按 workspace → session → 任务 三层展开。每个任务看三样东西：<b>spec</b>（要做什么）、<b>status</b>（session 现在在干什么）、<b>summary</b>（做完了哪些、还剩哪些，用 <code>[x]</code> / <code>[ ]</code> 显示）。</p>
 <nav class="toc">
   <a href="#model">1 · 模型</a><a href="#dash">2 · 主看板</a><a href="#src">3 · 每个字段从哪来</a>
-  <a href="#arch">4 · 架构</a><a href="#summary">5 · 手动摘要</a><a href="#daily">6 · 日常怎么用</a>
+  <a href="#arch">4 · 架构</a><a href="#summary">5 · 手动摘要</a><a href="#cloudcli">5½ · CloudCLI 集成</a><a href="#daily">6 · 日常怎么用</a>
   <a href="#ai">7 · 给 AI 用</a><a href="#cut">8 · 砍掉的东西</a><a href="#status">9 · 进度</a>
 </nav>
 
@@ -121,8 +121,35 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 </div>
 
 <!-- ============================================================ -->
-<h2 id="dash">2 · 主看板长什么样</h2>
-<p>布局参考 CloudCLI：左边是 workspace → session 树，右边是选中 session 的详情。只读，打开就能看，没有任何需要先跑的步骤。</p>
+<h2 id="dash">2 · 主看板：CloudCLI 里的 Tracker tab，加一个跨 workspace 的总览页</h2>
+<p><b>主入口是 CloudCLI。</b>CloudCLI 左侧本来就是 workspace → session 树，也能直接聊天、开 shell、看 git。tracker 以插件的形式在里面加一个 <b>Tracker</b> tab：你在左边选哪个 session，tab 里就显示它的任务、状态和摘要。左侧树和聊天都不用自己再写。</p>
+<div class="scroll">
+<div class="mock" role="img" aria-label="CloudCLI 内的 Tracker tab 示意">
+  <div class="mock-top">
+    <span class="brand">CloudCLI</span>
+    <span class="tag">Chat</span><span class="tag">Shell</span><span class="tag">Files</span><span class="tag">Git</span>
+    <span class="tag t-acc">▸ Tracker</span>
+    <span class="sp"></span><span class="note">左侧树、聊天、resume 都是 CloudCLI 原有的</span>
+  </div>
+  <div class="mock-body">
+    <div class="side">
+      <div class="ws">infra <small>CloudCLI 的项目列表</small></div>
+      <div class="sess sel"><span class="n">db-backup</span><span class="pg">选中</span></div>
+      <div class="sess"><span class="n">autoscaler-cooldown</span><span class="pg"></span></div>
+      <div class="ws">webapp</div>
+      <div class="sess"><span class="n">add-rate-limit</span><span class="pg"></span></div>
+    </div>
+    <div class="pane">
+      <h4>Tracker · db-backup</h4>
+      <div class="meta"><span><i class="dot d-wait"></i><b>在等你输入</b></span><span>diff +2.1k / −640</span><span>任务 7/9</span></div>
+      <ul class="chk"><li class="x">[x] … 已完成的 7 条</li><li class="now">[ ] 4.1 清理测试环境 ← 正在这条</li><li>[ ] 4.2 你本人手测一遍</li></ul>
+      <p style="margin-top:8px"><span class="btn p">↻ 生成摘要</span> <span class="note">内容和下面总览页里的右栏完全一样，切到 Chat tab 就能接着干</span></p>
+    </div>
+  </div>
+</div>
+</div>
+<h3>独立总览页：跨所有 workspace，<code>http://127.0.0.1:8787</code></h3>
+<p>CloudCLI 一次只看一个项目。想回答「所有 workspace 里谁在等我、哪些任务还剩几条」时，打开这个页面。它和 Tracker tab 共用同一个后端。</p>
 <div class="scroll">
 <div class="mock" role="img" aria-label="主看板示意">
   <div class="mock-top">
@@ -204,7 +231,8 @@ pre{background:var(--code);border-radius:8px;padding:10px 12px;overflow-x:auto;f
 <!-- ============================================================ -->
 <h2 id="arch">4 · 架构：写的在下面，读的在上面</h2>
 <div class="layer"><div class="lbl">看的人<small>人 / AI</small></div><div class="items">
-  <div class="it"><b>浏览器看板</b>http://127.0.0.1:8787</div>
+  <div class="it"><b>CloudCLI · Tracker tab</b>插件，跟着选中的 session 走（主入口）</div>
+  <div class="it"><b>总览页</b>http://127.0.0.1:8787</div>
   <div class="it"><b>CLI</b><code>harness tracker show</code>，输出带 [x]/[ ] 的 markdown</div>
   <div class="it"><b>JSON API</b><code>/api/board</code>，任何 agent 都能读</div>
 </div></div>
@@ -248,11 +276,27 @@ diff_note:  "一句话说明改了哪些地方"</pre>
 <p class="note">有 <code>tasks.md</code> 时，进度以它为准，summary 只是补充；没有 spec 的 session，summary 就是唯一的进度视图。原来那种「每条 prompt 自动调一次 LLM」的机制删掉。</p>
 
 <!-- ============================================================ -->
+<h2 id="cloudcli">5½ · CloudCLI 集成怎么做</h2>
+<p>用的是 CloudCLI 的插件接口（manifest 里 <code>slot: tab</code>）。插件放在本仓库 <code>tracker/cloudcli/</code>，只有三个文件：</p>
+<div class="scroll"><table>
+<tr><th>文件</th><th>作用</th></tr>
+<tr><td><code>manifest.json</code></td><td><code>{name: "harness-tracker", displayName: "Tracker", type: "module", slot: "tab", entry: "index.js", server: "server.js"}</code></td></tr>
+<tr><td><code>index.js</code></td><td>导出 <code>mount(container, api)</code>。CloudCLI 会把当前的 <code>{project.path, session.id, theme}</code> 推给它，切换 session 时也会通知；插件通过 <code>api.rpc()</code> 取数据并渲染</td></tr>
+<tr><td><code>server.js</code></td><td>CloudCLI 用 node 启动它。它只负责拉起或复用 python 的 tracker 进程，然后上报端口；之后的 RPC 由 CloudCLI 原样转发给 tracker</td></tr>
+</table></div>
+<ul>
+  <li><b>安装</b>：<code>bin/harness install</code> 在 <code>~/.claude-code-ui/plugins/harness-tracker/</code> 建一个真实目录，里面的文件软链回本仓库。CloudCLI 扫描插件时会跳过软链目录，所以只能链文件；这样仍然只有一份源码。</li>
+  <li><b>不改 CloudCLI 的代码</b>：只用它公开的插件接口，CloudCLI 升级不会受影响。</li>
+  <li><b>没装 CloudCLI 也能用</b>：总览页照常工作，插件只是多一个入口。</li>
+</ul>
+
+<!-- ============================================================ -->
 <h2 id="daily">6 · 日常怎么用：一条命令，其余都在 session 里做</h2>
 <div class="grid g2">
   <div class="card">
     <h3>你需要敲的</h3>
-    <pre>harness tracker          # 打开看板，就这一条</pre>
+    <pre>harness tracker          # 起后端 + 总览页，就这一条
+# 在 CloudCLI 里直接点 Tracker tab，后端没起会自动拉起</pre>
     <p class="note">第一次用要先跑一次 <code>bin/harness install</code>，以后不用再碰。</p>
   </div>
   <div class="card">
@@ -293,6 +337,7 @@ harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，ag
 <tr><td><code>/verify</code> 命令（跑验收命令、记录 PASS/FAIL）</td><td>不做，用 OpenSpec 自带的 <code>/opsx:verify</code></td><td>已经有了，不重复造</td></tr>
 <tr><td>改 hooks 和状态栏，显示当前任务</td><td>先不做</td><td>看板已经够用，跑一周再看要不要</td></tr>
 <tr><td>scope 的「review 后又改过」（drift）作为主指标</td><td>降成详情页里的一行提示</td><td>scope 写成宽目录时噪声很大；主进度改看 tasks.md</td></tr>
+<tr><td>自己做左侧树、聊天、resume</td><td>复用 CloudCLI，tracker 只做一个插件 tab</td><td>CloudCLI 已经有了，而且你本来就在用它远程看 session</td></tr>
 <tr><td>Tasks / Unscoped / Sessions 三个 tab</td><td>合成一棵树，「无 spec」只是一个标记</td><td>和你实际的心智一致：先看 workspace，再看 session</td></tr>
 </table></div>
 
@@ -303,7 +348,8 @@ harness tracker show infra</pre><p class="note">输出带 [x]/[ ] 的清单，ag
 <tr><td>session 采集、status、diff、按需 recap</td><td><span class="tag t-ok">已有</span> 在真实数据上验证过</td></tr>
 <tr><td><code>harness tracker</code> / <code>scan</code>、doctor 校验 scope</td><td><span class="tag t-ok">已有</span></td></tr>
 <tr><td>backfill skill</td><td><span class="tag t-warn">草案</span> 已安装，试跑过 1 次</td></tr>
-<tr><td>左侧树 + 右侧详情的新 UI</td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td>CloudCLI 插件（manifest / index.js / server.js）+ install 时软链</td><td><span class="tag t-bad">待做</span></td></tr>
+<tr><td>总览页的新 UI（左树 + 右详情）</td><td><span class="tag t-bad">待做</span> 和插件共用右栏组件</td></tr>
 <tr><td>openspec 扫描 + session ↔ change 关联</td><td><span class="tag t-bad">待做</span> 目前还没有 workspace 用上 openspec，需要先找一个试点</td></tr>
 <tr><td>「生成摘要」按钮（改造现有 recap，输出 done/remaining）</td><td><span class="tag t-bad">待做</span></td></tr>
 <tr><td>删掉自动提炼</td><td><span class="tag t-bad">待做</span></td></tr>

@@ -72,9 +72,24 @@ export function mount(container, api) {
     checks: {}, checkPending: {}, checkError: {},
     recaps: {}, recapPending: {}, recapError: {}, expanded: {},
     timers: new Set(), alive: true, ctx: api.context || {},
+    narrow: false, // container width <= 700 (ResizeObserver); the only switch for the phone layout
   };
   const root = h('div');
   container.replaceChildren(root);
+
+  const NARROW_MAX = 700;
+  const widthOf = () => (root.clientWidth || (container.getBoundingClientRect && container.getBoundingClientRect().width) || 0);
+  state.narrow = widthOf() > 0 && widthOf() <= NARROW_MAX;
+  let ro = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver((entries) => {
+      const w = entries && entries[0] ? entries[0].contentRect.width : widthOf();
+      if (!(w > 0)) return;
+      const n = w <= NARROW_MAX;
+      if (n !== state.narrow) { state.narrow = n; render(); } // re-render only when the layout flips
+    });
+    ro.observe(root);
+  }
 
   const isDark = () => {
     const c = state.ctx || {};
@@ -265,7 +280,7 @@ export function mount(container, api) {
     const chk = sess ? checkFor(sid, sess) : null;
     const pending = sess ? (!!state.checkPending[sid] || !!sess.check_pending) : false;
     const right = [];
-    if (sess) {
+    if (sess && !state.narrow) {
       const btn = h('button', { style: BTN, onclick: () => runCheck(sid) }, pending ? '核对中…' : chk ? '重新核对' : '核对勾选');
       if (pending) btn.disabled = true;
       right.push(h('span', { style: 'color:var(--mut);font-size:12px' }, '点按钮才调用 · sonnet'), btn);
@@ -392,11 +407,11 @@ export function mount(container, api) {
     const pending = !!state.recapPending[sid] || s.recap_pending;
     const btn = h('button', { style: BTN, onclick: () => runRecap(sid) }, pending ? '生成中…' : rc ? '重新生成' : '▶ 生成 Session Summary');
     if (pending) btn.disabled = true;
-    const box = h('div', null, sectionHead('Session Summary',
+    const box = h('div', null, state.narrow ? sectionHead('Session Summary') : sectionHead('Session Summary',
       h('span', { style: 'color:var(--mut);font-size:12px' }, '按 session_recap 流程 · 另起进程 · 不写入原 session'), btn));
     if (state.recapError[sid]) box.append(h('div', { style: 'color:#dc2626;margin-top:6px' }, state.recapError[sid]));
     if (!rc) {
-      box.append(h('div', { style: 'color:var(--mut)' }, '尚未生成。只在点按钮时执行（约 1-3 分钟）。'));
+      box.append(h('div', { style: 'color:var(--mut)' }, state.narrow ? '尚未生成。' : '尚未生成。只在点按钮时执行（约 1-3 分钟）。'));
       return box;
     }
     if (rc.stale) box.append(h('div', { style: 'color:var(--warn);font-size:12px' }, '已过期：session 之后又有新内容'));
@@ -406,6 +421,37 @@ export function mount(container, api) {
     return box;
   }
 
+
+  const LIVE = new Set(['running', 'needs_input', 'stale']);
+  function openBtn(s) {
+    const sid = s.session_id;
+    const label = '在 CloudCLI 打开';
+    const live = LIVE.has(s.phase);
+    const b = h('button', { style: BTN + ';font-weight:600', 'data-role': 'open-cloudcli' }, label);
+    let armed = null;
+    b.addEventListener('click', () => {
+      if (live && !armed) {
+        b.textContent = '还在运行，再点一次确认打开';
+        armed = setTimeout(() => { armed = null; b.textContent = label; }, 4000);
+        state.timers.add(armed);
+        return;
+      }
+      if (armed) { clearTimeout(armed); state.timers.delete(armed); armed = null; }
+      location.assign(location.origin + '/session/' + encodeURIComponent(sid));
+    });
+    return b;
+  }
+
+  function copyResumeBtn(s) {
+    const text = s.cwd ? `cd ${s.cwd} && claude --resume ${s.session_id}` : null;
+    if (!text) return null;
+    const b = h('button', { style: BTN, 'data-role': 'copy-resume' }, '复制 resume 命令');
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(text); b.textContent = '已复制'; } catch (e) { b.textContent = '复制失败'; }
+      setTimeout(() => { b.textContent = '复制 resume 命令'; }, 1500);
+    });
+    return b;
+  }
 
   function sessionView(ws, s) {
     const out = h('div');
@@ -417,6 +463,7 @@ export function mount(container, api) {
         s.phase_age_s != null ? h('span', { style: 'color:var(--mut)' }, `持续 ${fmtAge(s.phase_age_s)}`) : null,
         s.branch ? h('span', null, '分支 ' + s.branch) : null,
         d.files_changed != null ? h('span', null, `diff ${d.files_changed} 文件 +${d.insertions || 0} / −${d.deletions || 0}`) : null));
+    out.append(h('div', { style: 'margin-top:10px;display:flex;flex-wrap:wrap;gap:8px' }, openBtn(s), copyResumeBtn(s)));
     const ids = s.change_ids || [];
     const changes = ids.map((id) => (ws.changes || []).find((c) => c.id === id)).filter(Boolean);
     if (changes.length) out.append(section('任务进度（OpenSpec）', ...changes.map((c) => changeBlock(ws, c, s))));
@@ -445,6 +492,60 @@ export function mount(container, api) {
     return out;
   }
 
+  const RANK = { needs_input: 0, stale: 1, running: 2, done: 3, exited: 4 };
+  const rankOf = (s) => (s.phase in RANK ? RANK[s.phase] : 9);
+  function sortedSessions(ws) {
+    return [...(ws.sessions || [])].sort((a, b) => rankOf(a) - rankOf(b) ||
+      (a.phase_age_s == null ? Infinity : a.phase_age_s) - (b.phase_age_s == null ? Infinity : b.phase_age_s));
+  }
+
+  // Phone overview: every workspace, stacked and grouped; cards sorted within each workspace.
+  function narrowOverview(board) {
+    const out = h('div');
+    const wss = board.workspaces || [];
+    for (const ws of wss) {
+      const list = sortedSessions(ws);
+      const grp = h('div', { style: 'margin-bottom:18px', 'data-ws': ws.name });
+      grp.append(h('div', { style: 'font-size:16px;font-weight:700;word-break:break-word' }, ws.name),
+        h('div', { style: 'color:var(--mut);font-size:12px;margin-bottom:6px' }, `${list.length} 个 session`));
+      for (const s of list) {
+        grp.append(h('div', {
+          style: 'display:flex;gap:10px;align-items:center;min-height:48px;box-sizing:border-box;padding:8px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--card)',
+          'data-sid': s.session_id,
+          onclick: () => { state.pick = s.session_id; render(); },
+        }, phaseBadge(s), h('span', { style: 'flex:1;min-width:0;word-break:break-word' }, s.name || s.session_id),
+          s.phase_age_s != null ? h('span', { style: 'color:var(--mut);font-size:12px' }, fmtAge(s.phase_age_s)) : null));
+      }
+      if (!list.length) grp.append(h('div', { style: 'color:var(--mut)' }, '无 session'));
+      out.append(grp);
+    }
+    if (!wss.length) out.append(h('div', { style: 'color:var(--mut)' }, '没有 workspace'));
+    return out;
+  }
+
+  // Phone layout: always overview first (ctx.session ignored); detail only after a card is picked.
+  function narrowKids() {
+    const board = state.board;
+    if (state.pick) {
+      for (const w of board.workspaces || []) {
+        const s = (w.sessions || []).find((x) => x.session_id === state.pick);
+        if (s) {
+          return [h('a', { style: 'cursor:pointer;color:var(--acc);font-size:14px;display:flex;align-items:center;min-height:44px', onclick: () => { state.pick = null; render(); } }, '← 返回总览'),
+            sessionView(w, s)];
+        }
+      }
+      state.pick = null;
+    }
+    return [narrowOverview(board)];
+  }
+
+  function tapTargets() {
+    for (const el of root.querySelectorAll('button,a,summary')) {
+      el.style.minHeight = '44px';
+      el.style.boxSizing = 'border-box';
+    }
+  }
+
   function render() {
     if (!state.alive) return;
     const vars = THEMES[isDark() ? 'dark' : 'light'];
@@ -454,6 +555,8 @@ export function mount(container, api) {
     if (state.error && !state.board) {
       kids.push(h('div', { style: 'color:#dc2626' }, '无法读取 tracker：' + state.error),
         h('div', { style: 'color:var(--mut);margin-top:6px' }, '检查 harness tracker 是否在运行，或在终端运行 harness doctor。'));
+    } else if (state.board && state.narrow) {
+      kids.push(...narrowKids());
     } else if (state.board) {
       let { ws, session } = locate(state.board, state.ctx);
       let back = null;
@@ -481,12 +584,13 @@ export function mount(container, api) {
       kids.push(h('div', { style: 'color:var(--mut)' }, '加载中…'));
     }
     root.replaceChildren(...kids);
+    if (state.narrow) tapTargets();
   }
 
   const unsub = api.onContextChange ? api.onContextChange((ctx) => { state.ctx = ctx; state.pick = null; render(); }) : null;
   const refresh = setInterval(load, 30000);
   state.timers.add(refresh);
-  container.__harnessTracker = { state, unsub };
+  container.__harnessTracker = { state, unsub, ro };
   render();
   load();
 }
@@ -498,6 +602,7 @@ export function unmount(container) {
     for (const t of inst.state.timers) clearInterval(t);
     inst.state.timers.clear();
     if (typeof inst.unsub === 'function') inst.unsub();
+    if (inst.ro) inst.ro.disconnect();
     delete container.__harnessTracker;
   }
   if (container) container.replaceChildren();

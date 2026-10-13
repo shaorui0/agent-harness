@@ -17,6 +17,7 @@
 | 独立总览页 `http://127.0.0.1:8787`（跨所有 workspace） | 人，本机 | `bin/harness tracker`。顶栏右上角有 **CloudCLI ↗** 入口（绿点 = CloudCLI 在线），每个 session 详情里有「在 CloudCLI 打开 ↗」 |
 | CloudCLI 里的 **Tracker tab**（只看当前选中的 session） | 人，远程或本地 | CloudCLI 侧边栏 → Tracker；插件由 `bin/harness install` 安装（见 `cloudcli/`） |
 | `harness tracker show` | AI / 终端 | 纯文本 markdown 输出 |
+| CloudCLI 的 Tracker tab，**手机窄屏布局**（容器宽度 ≤700px 自动切换） | 人，手机 | 手机访问 CloudCLI 同一个 host，打开 Tracker tab。窄屏显示全部 workspace 的 session（需介入的置顶），详情页只读，带「在 CloudCLI 打开」（运行中的 session 需点两次）。改完 `cloudcli/index.js` 后要重新拷贝到插件目录（`bin/harness install`），否则 CloudCLI 里不生效 |
 
 ```bash
 bin/harness tracker                    # 启动总览页，打开 http://127.0.0.1:8787

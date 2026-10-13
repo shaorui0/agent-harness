@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  Standalone dev harness for tracker/cloudcli/index.js (CloudCLI plugin).
+  Serve (from the tracker/ directory):
+      cd projects/agent-harness/tracker && python3 -m http.server 8799
+  Open:
+      http://localhost:8799/static/dev/cloudcli-harness.html?w=390     (phone)
+      http://localhost:8799/static/dev/cloudcli-harness.html?w=1280    (desktop)
+  Optional: &theme=dark; &project=infra|webapp|none|all (default all = both mock workspaces mounted
+  stacked, each as its own plugin instance, so all 5 sessions show in the overview). &board=sorted loads mock_board_sorted.json (2 workspaces, 11 sessions). Globals: window.__net (fetch/XHR URLs), window.__posts (recorded POSTs).
+  No external resources.
+-->
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CloudCLI harness</title>
+<style>body{margin:0;padding:8px;background:#e9e9ee;font-family:system-ui,sans-serif}
+#plugin{background:#fff;margin:0 auto;box-sizing:border-box;overflow:auto;border:1px solid #bbb}</style></head>
+<body>
+<div id="plugin"></div>
+<script>
+window.__net = []; window.__posts = [];
+(function () {
+  const of = window.fetch;
+  window.fetch = function (u, o) { window.__net.push(String((u && u.url) || u)); return of.apply(this, arguments); };
+  const ox = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) { window.__net.push(String(u)); return ox.apply(this, arguments); };
+})();
+</script>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const w = parseInt(q.get('w') || '1280', 10);
+const dark = q.get('theme') === 'dark';
+const el = document.getElementById('plugin');
+el.style.width = w + 'px';
+if (dark) { document.body.style.background = '#111'; el.style.background = '#1b1b1f'; }
+const base = new URL('./', import.meta.url);
+const getJson = async (f) => (await fetch(new URL(f, base))).json();
+const PROJ = { infra: '/Users/me/work/infra', webapp: '/Users/me/work/webapp' };
+const makeApi = (proj) => ({
+  context: { theme: dark ? 'dark' : 'light', isDarkMode: dark, project: proj ? { path: proj } : null },
+  async rpc(method, path, body) {
+    if (method !== 'GET') {
+      window.__posts.push({ method, path, body, at: new Date().toISOString() });
+      return { ok: true, stub: true };
+    }
+    window.__net.push('rpc:' + method + ' ' + path);
+    const p = path.split('?')[0];
+    if (p === '/api/board') return getJson(q.get('board') === 'sorted' ? 'mock_board_sorted.json' : 'mock_board.json');
+    if (p === '/api/recap') return getJson('mock_recap.json');
+    if (p === '/api/check') return getJson('mock_state.json');
+    if (p === '/api/goals') return getJson('mock_goals.json');
+    throw new Error('harness: no mock for ' + method + ' ' + path);
+  },
+  onContextChange(cb) { window.__setContext = cb; return () => { window.__setContext = null; }; },
+});
+const mod = await import(new URL('../../cloudcli/index.js', import.meta.url));
+const pq = q.get('project') || 'all';
+const names = pq === 'all' ? ['infra', 'webapp'] : [pq];
+for (const n of names) {
+  const c = document.createElement('div'); c.dataset.project = n; el.appendChild(c);
+  mod.mount(c, makeApi(PROJ[n] || null));
+}
+window.__mod = mod; window.__ready = true;
+</script></body></html>

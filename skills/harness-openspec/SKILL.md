@@ -1,6 +1,6 @@
 ---
 name: harness-openspec
-description: 用 OpenSpec 管「要动代码/配置、≥5 步、可能跨 session」的单个 change 的任务分解与进度（proposal→specs/design→tasks→★任务评审→apply loop(多 subagent 并行)→verify→证据落盘→archive）。只做执行层，不替代 .harness/scope 的边界澄清，也不替代 14-backlog.md 的全局缺口表。用户说 "/harness-openspec"、"用 openspec 管这个"、"这个 change 拆一下任务"、"openspec 和 scope gate 怎么配合" 时触发；或自己判断当前任务符合下面「该用」的三条判据时主动建议（建议，不自动开）。
+description: 用 OpenSpec 管「要动代码/配置、≥5 步、可能跨 session」的单个 change 的任务分解与进度（proposal→specs/design→tasks→★任务评审→apply loop(多 subagent 并行)→verify→证据落盘→archive）。只做执行层，不替代 .harness/scope 的边界澄清，也不替代 项目 backlog 的全局缺口表。用户说 "/harness-openspec"、"用 openspec 管这个"、"这个 change 拆一下任务"、"openspec 和 scope gate 怎么配合" 时触发；或自己判断当前任务符合下面「该用」的三条判据时主动建议（建议，不自动开）。
 ---
 
 # harness-openspec

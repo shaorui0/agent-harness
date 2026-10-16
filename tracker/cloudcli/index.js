@@ -72,6 +72,7 @@ export function mount(container, api) {
     checks: {}, checkPending: {}, checkError: {},
     recaps: {}, recapPending: {}, recapError: {}, expanded: {},
     timers: new Set(), alive: true, ctx: api.context || {},
+    usage: null,
     narrow: false, // container width <= 700 (ResizeObserver); the only switch for the phone layout
   };
   const root = h('div');
@@ -95,6 +96,35 @@ export function mount(container, api) {
     const c = state.ctx || {};
     return c.isDarkMode === true || c.theme === 'dark';
   };
+
+  // Plan-usage bar (5h / weekly). Separate request: /api/usage may take a few seconds on a cold cache.
+  async function loadUsage() {
+    try {
+      state.usage = await api.rpc('GET', '/api/usage');
+    } catch (_) {
+      state.usage = null;
+    }
+    if (state.alive) render();
+  }
+
+  function usageBar() {
+    const u = state.usage;
+    if (!u) return null;
+    const ths = u.thresholds || [70, 90];
+    const shown = (u.windows || []).filter((w) => w.id === 'five_hour' || w.id === 'seven_day');
+    if (!shown.length) return h('div', { style: 'font-size:12px;color:var(--mut);margin-bottom:8px', title: u.error || '' }, '额度取不到');
+    const row = h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:12px;color:var(--mut);margin-bottom:10px' });
+    for (const w of shown) {
+      const color = w.percent >= ths[ths.length - 1] ? '#dc2626' : w.percent >= ths[0] ? 'var(--warn)' : 'var(--ok)';
+      const track = h('span', { style: 'position:relative;display:inline-block;width:84px;height:8px;border-radius:4px;background:var(--card);border:1px solid var(--line);overflow:hidden' },
+        h('i', { style: `position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, w.percent)}%;background:${color}` }),
+        ...ths.map((t) => h('i', { style: `position:absolute;top:0;bottom:0;width:1px;left:${t}%;background:var(--mut);opacity:.7` })));
+      const tip = `${w.label} ${w.percent}%` + (w.resets_text ? `，重置于 ${w.resets_text}` : '') + (u.stale ? '（数据可能过期）' : '');
+      row.append(h('span', { style: 'display:inline-flex;align-items:center;gap:6px;white-space:nowrap', title: tip },
+        w.id === 'five_hour' ? '5h' : '周', track, `${Math.round(w.percent)}%${u.stale ? '?' : ''}`));
+    }
+    return row;
+  }
 
   async function load() {
     try {
@@ -552,6 +582,8 @@ export function mount(container, api) {
     root.style.cssText = Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';') +
       ';background:var(--bg);color:var(--fg);padding:16px;min-height:100%;box-sizing:border-box;font:13.5px/1.5 system-ui,sans-serif';
     const kids = [];
+    const ub = usageBar();
+    if (ub) kids.push(ub);
     if (state.error && !state.board) {
       kids.push(h('div', { style: 'color:#dc2626' }, '无法读取 tracker：' + state.error),
         h('div', { style: 'color:var(--mut);margin-top:6px' }, '检查 harness tracker 是否在运行，或在终端运行 harness doctor。'));
@@ -590,9 +622,12 @@ export function mount(container, api) {
   const unsub = api.onContextChange ? api.onContextChange((ctx) => { state.ctx = ctx; state.pick = null; render(); }) : null;
   const refresh = setInterval(load, 30000);
   state.timers.add(refresh);
+  const usageTimer = setInterval(loadUsage, 120000);
+  state.timers.add(usageTimer);
   container.__harnessTracker = { state, unsub, ro };
   render();
   load();
+  loadUsage();
 }
 
 export function unmount(container) {

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ai.harness.usage-alert</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON3__</string>
+    <string>__TRACKER_DIR__/usage_alert.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>__TRACKER_DIR__</string>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key><string>__HOME__/.harness/tracker/state/usage_alert.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/.harness/tracker/state/usage_alert.log</string>
+</dict>
+</plist>

@@ -1201,6 +1201,14 @@ class MonitorHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(body, status=status)
                 return
 
+            if path == "/api/usage":
+                import usage  # noqa: PLC0415 — 延迟导入，和 board 一样：出问题只影响这一个接口
+                q = parse_qs(urlparse(self.path).query)
+                res = dict(usage.get(force=bool(q.get("refresh"))))
+                res["thresholds"] = list(tracker_config.load().get("usage_thresholds") or (70, 90))
+                self._send_json(res)
+                return
+
             if path == "/api/check":
                 sid = (parse_qs(urlparse(self.path).query).get("session_id") or [""])[0]
                 tpath = (_last_sessions.get(sid) or {}).get("transcript_path")

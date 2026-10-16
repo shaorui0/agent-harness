@@ -19,6 +19,8 @@ DEFAULTS = {
     "recap_skill": "~/.claude/skills/session_recap/SKILL.md",   # 「Session Recap」框执行的 skill 文本
     "recap_model": "sonnet",
     "check_model": "sonnet",     # 「核对勾选」用的模型
+    "usage_thresholds": [70, 90],    # 订阅额度告警/进度条刻度（%）
+    "usage_alert_channels": ["macos"],   # macos | imessage | ntfy | command，见 usage_alert.py
     "cloudcli_url": "http://localhost:5173",   # CloudCLI 的访问地址，看板里的入口和「在 CloudCLI 打开」用它
 }
 

@@ -41,6 +41,12 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .btn:disabled{opacity:.55;cursor:default}
 .btn.p{background:var(--accent);color:#fff}
 .btn.p:hover{opacity:.9}
+.usage{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:12px;color:var(--muted)}
+.ubar{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.utrack{position:relative;width:84px;height:8px;border-radius:4px;background:var(--code);border:1px solid var(--line);overflow:hidden}
+.ufill{position:absolute;left:0;top:0;bottom:0;background:var(--ok)}
+.ufill.w{background:var(--warn)}.ufill.c{background:var(--bad)}
+.utick{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.7}
 .refresh{font-size:12px;color:var(--muted);white-space:nowrap}
 #errbar{background:var(--bad-soft);color:var(--bad);padding:6px 16px;font-size:13px;border-bottom:1px solid var(--line)}
 
@@ -160,6 +166,7 @@ ul.chk li.ev{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe U
   <span class="chips" id="chips"></span>
   <label class="toggle"><input type="checkbox" id="onlyMe"> 只看需要我的</label>
   <span class="sp"></span>
+  <span class="usage" id="usage" title="订阅额度（claude /usage）。竖线 = 告警阈值"></span>
   <span id="cli"></span>
   <span class="refresh" id="refreshed">加载中…</span>
   <button class="btn" id="refreshBtn" type="button">刷新</button>
@@ -283,6 +290,37 @@ ul.chk li.ev{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe U
     c.appendChild(tag('exited ' + (sm.exited || 0)));
     renderCli();
     fixHeaderOffset();
+  }
+  /* ---------- 订阅额度条 ---------- */
+  var USAGE_SHOW = { five_hour: '5h', seven_day: '周' };
+  function renderUsage(u) {
+    var box = document.getElementById('usage');
+    box.replaceChildren();
+    if (!u) return;
+    var ths = u.thresholds || [70, 90];
+    var shown = (u.windows || []).filter(function (w) { return USAGE_SHOW[w.id]; });
+    if (!u.ok && !shown.length) {
+      var l = u.local || {};
+      box.appendChild(h('span', { text: '额度取不到' + (l.five_hour_tokens != null ? '（本地 token：5h ' + Math.round(l.five_hour_tokens / 1e6) + 'M / 7d ' + Math.round(l.seven_day_tokens / 1e6) + 'M）' : ''), title: u.error || '' }));
+      return;
+    }
+    shown.forEach(function (w) {
+      var cls = w.percent >= ths[ths.length - 1] ? 'c' : (w.percent >= ths[0] ? 'w' : '');
+      var track = h('span', { class: 'utrack' });
+      track.appendChild(h('i', { class: 'ufill ' + cls, style: 'width:' + Math.min(100, w.percent) + '%' }));
+      ths.forEach(function (t) { track.appendChild(h('i', { class: 'utick', style: 'left:' + t + '%' })); });
+      var tip = w.label + ' ' + w.percent + '%' + (w.resets_text ? '，重置于 ' + w.resets_text : '') + (u.stale ? '（数据可能过期：' + (u.error || '') + '）' : '');
+      var b = h('span', { class: 'ubar', title: tip });
+      b.appendChild(h('span', { text: USAGE_SHOW[w.id] }));
+      b.appendChild(track);
+      b.appendChild(h('span', { class: cls === 'c' ? 'mono' : 'mono', text: Math.round(w.percent) + '%' + (u.stale ? '?' : '') }));
+      box.appendChild(b);
+    });
+    fixHeaderOffset();
+  }
+  function loadUsage() {
+    if (MOCK) return;
+    fetch('/api/usage', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(renderUsage).catch(function () {});
   }
   /* ---------- CloudCLI 入口 ---------- */
   function cliInfo() { return (data && data.links && data.links.cloudcli) || null; }
@@ -925,6 +963,8 @@ ul.chk li.ev{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe U
     if (f && f.s.recap_pending && !recapPollers[selected]) startRecapPolling(selected);
   });
   setInterval(load, 30000);
+  loadUsage();
+  setInterval(loadUsage, 120000);
   // keep the "refreshed" label honest even if the tab sleeps
   document.addEventListener('visibilitychange', function () { if (!document.hidden && lastOk && Date.now() - lastOk > 30000) load(); });
 })();

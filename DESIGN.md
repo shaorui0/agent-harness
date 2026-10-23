@@ -104,6 +104,8 @@ AI 让执行变便宜之后，事情变多了，省下来的时间没有落到�
 
 **hook 里不调模型。** hook 在关键路径上，一次 `claude -p` 是几十秒。所有需要模型的工作都在 skill 或 cron 里。
 
+**发 prompt 前的对齐也是确定性规则。** prompt 质量是上游杠杆，`harness-prompt-prehook.py` 在 `UserPromptSubmit` 上用关键词和正则把你自己的公理/规则递给 agent，不调模型、不拦截、短 prompt 静默；个人公理放在配置指向的文件里，仓库不带任何个人内容。见 `docs/prompt-prehook.md`。
+
 **全局装一次，按项目生效。** hook 注册在 `~/.claude/settings.json`，是全局的；行为由目录里的 `.harness/project.yml` 决定。
 没有配置的目录走全局默认，静默且快速返回。
 
